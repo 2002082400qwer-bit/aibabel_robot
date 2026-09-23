@@ -124,7 +124,7 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1VelocityKi        2
 #define Mot1VelocityKd        50
 #define Mot1PidStartDuty      1500
-#define Mot1PidCruiseDuty     2000
+#define Mot1PidCruiseDuty     2100
 
 static int32_t Mot1PidPreviousError = 0;
 static int32_t Mot1PidPreviousPreviousError = 0;
