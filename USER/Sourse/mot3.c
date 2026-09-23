@@ -123,6 +123,8 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3VelocityKd        50
 #define Mot3PidStartDuty      1500
 #define Mot3PidCruiseDuty     2500
+#define Mot3PidSlowDownPulseNum 50
+#define Mot3PidMinimumTargetVelocity 50
 
 static int32_t Mot3PidPreviousError = 0;
 static int32_t Mot3PidPreviousPreviousError = 0;
@@ -277,7 +279,10 @@ void Mot3VelocityControl(void)
 	if( Mot3.TarPulseNum > Mot3.PulseNum ) {
 		remainingPulseNum = Mot3.TarPulseNum - Mot3.PulseNum;
 		PidTargetVelocity = Mot3.TarVelocity;
-		if( (Mot3.Reset == 1) && (remainingPulseNum < 20) && (PidTargetVelocity > 50) ) PidTargetVelocity = 50;
+		if( (remainingPulseNum < Mot3PidSlowDownPulseNum) && (PidTargetVelocity > Mot3PidMinimumTargetVelocity) ) {
+			PidTargetVelocity = (u16)(((u32)Mot3.TarVelocity * remainingPulseNum) / Mot3PidSlowDownPulseNum);
+			if( PidTargetVelocity < Mot3PidMinimumTargetVelocity ) PidTargetVelocity = Mot3PidMinimumTargetVelocity;
+		}
 		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
 	}
 	else {
