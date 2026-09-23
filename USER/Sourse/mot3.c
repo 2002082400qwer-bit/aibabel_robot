@@ -116,26 +116,61 @@ u8 Mot3ReadDownHallState(void)
 	return Mot3.Hall2Sta;
 }
 
-#define Mot3VelocityKp    1
+/* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
+#define Mot3PidScale          100
+#define Mot3VelocityKp        100
+#define Mot3VelocityKi        2
+#define Mot3VelocityKd        50
+#define Mot3PidStartDuty      1500
+#define Mot3PidCruiseDuty     2400
 
-u16 Mot3VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
+static int32_t Mot3PidPreviousError = 0;
+static int32_t Mot3PidPreviousPreviousError = 0;
+static int32_t Mot3PidOutputScaled = 0;
+
+/**
+ * 函数作用：清除电机3速度PID的历史误差，并设置本次启动占空比。
+ * InitialPwm：本次运动开始时的PWM占空比，范围为0到最大PWM。
+ */
+static void Mot3PidReset(u16 InitialPwm)
 {
-    u16 Bias;                          
-    static u16 ControlVelocity;
+	Mot3PidPreviousError = 0;
+	Mot3PidPreviousPreviousError = 0;
+	if( InitialPwm > c_MaxPwmDuty ) InitialPwm = c_MaxPwmDuty;
+	Mot3PidOutputScaled = (int32_t)InitialPwm * Mot3PidScale;
+}
 
-		if( TargetVelocity >= CurrentVelocity )	{	
-				Bias = TargetVelocity - CurrentVelocity;
-				Bias = Bias*Mot3VelocityKp;
-				ControlVelocity += Bias;
-				if( ControlVelocity > c_MaxPwmDuty ) ControlVelocity = c_MaxPwmDuty;
-		}
-		else	{
-				Bias = CurrentVelocity - TargetVelocity;
-				Bias = Bias*Mot3VelocityKp;
-				if(ControlVelocity > Bias) ControlVelocity -= Bias;    
-				else ControlVelocity = 0;
-		}		
-    return ControlVelocity;
+/**
+ * 函数作用：根据目标速度和当前速度执行电机3增量式PID并输出限幅PWM。
+ * TargetVelocity：本周期目标速度，单位与Mot3.CurVelocity相同。
+ * CurrentVelocity：由电机3编码脉冲计算出的当前速度。
+ * 返回值：范围为0到最大PWM的占空比。
+ */
+static u16 Mot3VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
+{
+	int32_t Error;
+	int32_t DeltaError;
+	int32_t SecondDifference;
+	int32_t DeltaOutputScaled;
+	int32_t OutputLimitScaled;
+
+	if( TargetVelocity == 0 ) {
+		Mot3PidReset(0);
+		return 0;
+	}
+
+	Error = (int32_t)TargetVelocity - (int32_t)CurrentVelocity;
+	DeltaError = Error - Mot3PidPreviousError;
+	SecondDifference = Error - 2 * Mot3PidPreviousError + Mot3PidPreviousPreviousError;
+	DeltaOutputScaled = Mot3VelocityKp * DeltaError + Mot3VelocityKi * Error + Mot3VelocityKd * SecondDifference;
+	OutputLimitScaled = (int32_t)c_MaxPwmDuty * Mot3PidScale;
+	Mot3PidOutputScaled += DeltaOutputScaled;
+	if( Mot3PidOutputScaled < 0 ) Mot3PidOutputScaled = 0;
+	if( Mot3PidOutputScaled > OutputLimitScaled ) Mot3PidOutputScaled = OutputLimitScaled;
+
+	Mot3PidPreviousPreviousError = Mot3PidPreviousError;
+	Mot3PidPreviousError = Error;
+	return (u16)(Mot3PidOutputScaled / Mot3PidScale);
 }
 
 void Mot3Encode(void)
@@ -179,16 +214,25 @@ void Mot3ClearEncode(void)
 	Mot3.PidTimer = 0;
 	Mot3.PidTimerB = 0;
 }	
+/**
+ * 函数作用：启动电机3速度闭环前清零测速脉冲并重置PID状态。
+ */
 void Mot3EnablePidControl(void)
 {
 	Mot3ClearEncode();
 	Mot3.CurVelocity = 0;
+	if( Mot3.Reset == 1 ) Mot3PidReset(Mot3PidStartDuty);
+	else Mot3PidReset(Mot3PidCruiseDuty);
 	Mot3.PidEn = Enable;
 }
+/**
+ * 函数作用：关闭电机3速度PID并清零PWM和历史控制状态。
+ */
 void Mot3DisablePidControl(void)
 {
 	TIM1_SetDuty_CH2(0);
 	Mot3.PidEn = Disable;
+	Mot3PidReset(0);
 }
 void Mot3SetCurrentPosition( u16 num )
 {
@@ -198,72 +242,56 @@ void Mot3SetTargetPosition( u16 num )
 {
 	Mot3.TarPosition = num;
 }	
+/**
+ * 函数作用：按固定周期更新电机3位置、编码器速度和PID PWM输出。
+ */
 void Mot3VelocityControl(void)
 {
-	u16 Pwm;
-	u32 sum, encode_count;	
-	
-	if( Mot3.PidEn == 0 )	return;	
-	
-	if( Mot3.PidTimer >= C_PID_RATE ) {
-	
-		Mot3.PidTimer = Mot3.PidTimer - C_PID_RATE;
-		//printf("Mot3.PidTimer1 =%d\n", Mot3.PidTimer);
-		
-		if( Mot3.Action == motor_forward )  {		
-			sum = Mot3.CurPosition + Mot3.PulseNum;
-			if( sum > Mot3.MaxPulseNum ) sum = Mot3.MaxPulseNum;
-		}	
-		else if(  Mot3.Action == motor_backward )
-		{
-			if( Mot3.CurPosition > Mot3.PulseNum ) sum = Mot3.CurPosition - Mot3.PulseNum;
-			else sum = 0;
-		}		
-		//printf("sum =%d\n", sum); 
-		if( sum != 0 ) {
-			sum = (u32)(sum*c_AngleScaleFactor*c_PulseScaleFactor);
-			Mot3.CurAngle =  sum/Mot3.PulseNumPerAngle;  
-		}	
-		else Mot3.CurAngle = 0;
-		
-		
-		
-		encode_count = Mot3ReadEncode()*(1000/C_PID_RATE);
-		Mot3.PulseNumPerMin = encode_count*60;
-		encode_count = (u32)(encode_count*c_RadianScaleFactor*c_PulseScaleFactor);
-		if( encode_count != 0 )	Mot3.CurVelocity = (u32)(encode_count/Mot3.PulseNumPerAngle);
-		else Mot3.CurVelocity = 0;
-				
-		#if 1
-		if( Mot3.Reset == 1) {
-			if( Mot3.TarPulseNum > Mot3.PulseNum ) {	
-				if( ( Mot3.TarPulseNum - Mot3.PulseNum ) >= 20 ) Pwm = Mot3VelocityFeedbackControl( Mot3.TarVelocity, Mot3.CurVelocity );
-				else Pwm = Mot3VelocityFeedbackControl( 50, Mot3.CurVelocity );
-			}
-			else
-			{
-				Pwm = 0;
-			}	
-		}	
-		else { 
-			if( Mot3.TarVelocity == 0 ) Pwm = 0;
-			else Pwm = 2400;
-	  }			
-		#else
-		if( Mot3.TarVelocity == 0 ) Pwm = 0;
-		else Pwm = 2400;
-		#endif
-		TIM1_SetDuty_CH2(Pwm);
-		#if 1
-		printf("M3.TarVel =%d\n", Mot3.TarVelocity);
-		printf("M3.CurVel =%d\n", Mot3.CurVelocity);
-		printf("M3.PulseNum =%d\n", Mot3.PulseNum);
-		printf("M3.CurAngle=%d\n", Mot3.CurAngle);
-		printf("M3.PulseNumPerMin=%d\n", Mot3.PulseNumPerMin);
-		printf("pwm =%d\n", Pwm );
-		#endif
-		//printf("Mot3.PidTimer2 =%d\n", Mot3.PidTimer);
-	}	
+	u16 Pwm, PidTargetVelocity;
+	u32 sum, encode_count, remainingPulseNum;
+
+	if( Mot3.PidEn == 0 ) return;
+	if( Mot3.PidTimer < C_PID_RATE ) return;
+
+	Mot3.PidTimer = Mot3.PidTimer - C_PID_RATE;
+	sum = 0;
+	if( Mot3.Action == motor_forward ) {
+		sum = Mot3.CurPosition + Mot3.PulseNum;
+		if( sum > Mot3.MaxPulseNum ) sum = Mot3.MaxPulseNum;
+	}
+	else if( Mot3.Action == motor_backward ) {
+		if( Mot3.CurPosition > Mot3.PulseNum ) sum = Mot3.CurPosition - Mot3.PulseNum;
+	}
+	if( sum != 0 ) {
+		sum = (u32)(sum * c_AngleScaleFactor * c_PulseScaleFactor);
+		Mot3.CurAngle = sum / Mot3.PulseNumPerAngle;
+	}
+	else Mot3.CurAngle = 0;
+
+	encode_count = Mot3ReadEncode() * (1000 / C_PID_RATE);
+	Mot3.PulseNumPerMin = encode_count * 60;
+	encode_count = (u32)(encode_count * c_RadianScaleFactor * c_PulseScaleFactor);
+	if( encode_count != 0 ) Mot3.CurVelocity = (u32)(encode_count / Mot3.PulseNumPerAngle);
+	else Mot3.CurVelocity = 0;
+
+	if( Mot3.TarPulseNum > Mot3.PulseNum ) {
+		remainingPulseNum = Mot3.TarPulseNum - Mot3.PulseNum;
+		PidTargetVelocity = Mot3.TarVelocity;
+		if( (Mot3.Reset == 1) && (remainingPulseNum < 20) && (PidTargetVelocity > 50) ) PidTargetVelocity = 50;
+		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
+	}
+	else {
+		Pwm = Mot3VelocityFeedbackControl(0, Mot3.CurVelocity);
+	}
+	TIM1_SetDuty_CH2(Pwm);
+#if 1
+	printf("M3.TarVel =%d\n", Mot3.TarVelocity);
+	printf("M3.CurVel =%d\n", Mot3.CurVelocity);
+	printf("M3.PulseNum =%d\n", Mot3.PulseNum);
+	printf("M3.CurAngle=%d\n", Mot3.CurAngle);
+	printf("M3.PulseNumPerMin=%d\n", Mot3.PulseNumPerMin);
+	printf("pwm =%d\n", Pwm);
+#endif
 }		
 
 

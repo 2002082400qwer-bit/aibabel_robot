@@ -119,26 +119,60 @@ u8 Mot2ReadDownHallState(void)
 	return Mot2.Hall2Sta;
 }
 
-#define Mot2VelocityKp    1
+/* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
+#define Mot2PidScale          100
+#define Mot2VelocityKp        100
+#define Mot2VelocityKi        2
+#define Mot2VelocityKd        50
+#define Mot2PidStartDuty      2400
 
-u16 Mot2VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
+static int32_t Mot2PidPreviousError = 0;
+static int32_t Mot2PidPreviousPreviousError = 0;
+static int32_t Mot2PidOutputScaled = 0;
+
+/**
+ * 函数作用：清除电机2速度PID的历史误差，并设置本次启动占空比。
+ * InitialPwm：本次运动开始时的PWM占空比，范围为0到最大PWM。
+ */
+static void Mot2PidReset(u16 InitialPwm)
 {
-    u16 Bias;                          
-    static u16 ControlVelocity;
+	Mot2PidPreviousError = 0;
+	Mot2PidPreviousPreviousError = 0;
+	if( InitialPwm > c_MaxPwmDuty ) InitialPwm = c_MaxPwmDuty;
+	Mot2PidOutputScaled = (int32_t)InitialPwm * Mot2PidScale;
+}
 
-		if( TargetVelocity >= CurrentVelocity )	{	
-				Bias = TargetVelocity - CurrentVelocity;
-				Bias = Bias*Mot2VelocityKp;
-				ControlVelocity += Bias;
-				if( ControlVelocity > c_MaxPwmDuty ) ControlVelocity = c_MaxPwmDuty;
-		}
-		else	{
-				Bias = CurrentVelocity - TargetVelocity;
-				Bias = Bias*Mot2VelocityKp;
-				if(ControlVelocity > Bias) ControlVelocity -= Bias;    
-				else ControlVelocity = 0;
-		}		
-    return ControlVelocity;
+/**
+ * 函数作用：根据目标速度和当前速度执行电机2增量式PID并输出限幅PWM。
+ * TargetVelocity：本周期目标速度，单位与Mot2.CurVelocity相同。
+ * CurrentVelocity：由电机2编码脉冲计算出的当前速度。
+ * 返回值：范围为0到最大PWM的占空比。
+ */
+static u16 Mot2VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
+{
+	int32_t Error;
+	int32_t DeltaError;
+	int32_t SecondDifference;
+	int32_t DeltaOutputScaled;
+	int32_t OutputLimitScaled;
+
+	if( TargetVelocity == 0 ) {
+		Mot2PidReset(0);
+		return 0;
+	}
+
+	Error = (int32_t)TargetVelocity - (int32_t)CurrentVelocity;
+	DeltaError = Error - Mot2PidPreviousError;
+	SecondDifference = Error - 2 * Mot2PidPreviousError + Mot2PidPreviousPreviousError;
+	DeltaOutputScaled = Mot2VelocityKp * DeltaError + Mot2VelocityKi * Error + Mot2VelocityKd * SecondDifference;
+	OutputLimitScaled = (int32_t)c_MaxPwmDuty * Mot2PidScale;
+	Mot2PidOutputScaled += DeltaOutputScaled;
+	if( Mot2PidOutputScaled < 0 ) Mot2PidOutputScaled = 0;
+	if( Mot2PidOutputScaled > OutputLimitScaled ) Mot2PidOutputScaled = OutputLimitScaled;
+
+	Mot2PidPreviousPreviousError = Mot2PidPreviousError;
+	Mot2PidPreviousError = Error;
+	return (u16)(Mot2PidOutputScaled / Mot2PidScale);
 }
 
 void Mot2Encode(void)
@@ -182,16 +216,24 @@ void Mot2ClearEncode(void)
 	Mot2.PidTimer = 0;
 	Mot2.PidTimerB = 0;
 }	
+/**
+ * 函数作用：启动电机2速度闭环前清零测速脉冲并重置PID状态。
+ */
 void Mot2EnablePidControl(void)
 {
 	Mot2ClearEncode();
 	Mot2.CurVelocity = 0;
+	Mot2PidReset(Mot2PidStartDuty);
 	Mot2.PidEn = Enable;
 }
+/**
+ * 函数作用：关闭电机2速度PID并清零PWM和历史控制状态。
+ */
 void Mot2DisablePidControl(void)
 {
 	TIM1_SetDuty_CH1(0);
 	Mot2.PidEn = Disable;
+	Mot2PidReset(0);
 }
 void Mot2SetCurrentPosition( u16 num )
 {
@@ -201,62 +243,56 @@ void Mot2SetTargetPosition( u16 num )
 {
 	Mot2.TarPosition = num;
 }	
+/**
+ * 函数作用：按固定周期更新电机2位置、编码器速度和PID PWM输出。
+ */
 void Mot2VelocityControl(void)
 {
-	u16 Pwm;
-	u32 sum, encode_count;	
-	
-	if( Mot2.PidEn == 0 )	return;	
-	
-	if( Mot2.PidTimer >= C_PID_RATE ) {
-	
-		Mot2.PidTimer = Mot2.PidTimer - C_PID_RATE;
-		//printf("Mot2.PidTimer1 =%d\n", Mot2.PidTimer);
-		
-		if( Mot2.Action == motor_forward )  {		
-			sum = Mot2.CurPosition + Mot2.PulseNum;
-			if( sum > Mot2.MaxPulseNum ) sum = Mot2.MaxPulseNum;
-		}	
-		else if(  Mot2.Action == motor_backward )
-		{
-			if( Mot2.CurPosition > Mot2.PulseNum ) sum = Mot2.CurPosition - Mot2.PulseNum;
-			else sum = 0;
-		}		
-		 
-		if( sum != 0 ) {
-			sum = (u32)(sum*c_HeightScaleFactor*c_PulseScaleFactor);
-			Mot2.CurHeight =  sum/Mot2.PulseNumPerMm;  
-		}	
-		else Mot2.CurHeight = 0;
-		
-		
-		
-		encode_count = Mot2ReadEncode()*(1000/C_PID_RATE);
-		Mot2.PulseNumPerMin = encode_count*60;
-		encode_count = (u32)(encode_count*c_SpeedScaleFactor*c_PulseScaleFactor);
-		if( encode_count != 0 )	Mot2.CurVelocity = (u32)(encode_count/Mot2.PulseNumPerMm);
-		else Mot2.CurVelocity = 0;
-				
-		
-		
-		if( Mot2.TarPulseNum > Mot2.PulseNum ) {	
-				if( ( Mot2.TarPulseNum - Mot2.PulseNum ) >= 20 ) Pwm = Mot2VelocityFeedbackControl( Mot2.TarVelocity, Mot2.CurVelocity );
-				else Pwm = Mot2VelocityFeedbackControl( 20, Mot2.CurVelocity );
-		}
-		if( Mot2.TarVelocity == 0 ) Pwm = 0;
-		else Pwm =4800;
-		TIM1_SetDuty_CH1(Pwm);
-		//TIM1_SetDuty_CH2(3200);
-		#if 1
-		printf("M2.TarVel =%d\n", Mot2.TarVelocity);
-		printf("M2.CurVel =%d\n", Mot2.CurVelocity);
-		printf("M2.PulseNum =%d\n", Mot2.PulseNum);
-		printf("M2.CurHeight =%d\n", Mot2.CurHeight);
-		printf("M2.PulseNumPerMin=%d\n", Mot2.PulseNumPerMin);
-		printf("pwm =%d\n", Pwm );
-		#endif
-		//printf("Mot2.PidTimer2 =%d\n", Mot2.PidTimer);
-	}	
+	u16 Pwm, PidTargetVelocity;
+	u32 sum, encode_count, remainingPulseNum;
+
+	if( Mot2.PidEn == 0 ) return;
+	if( Mot2.PidTimer < C_PID_RATE ) return;
+
+	Mot2.PidTimer = Mot2.PidTimer - C_PID_RATE;
+	sum = 0;
+	if( Mot2.Action == motor_forward ) {
+		sum = Mot2.CurPosition + Mot2.PulseNum;
+		if( sum > Mot2.MaxPulseNum ) sum = Mot2.MaxPulseNum;
+	}
+	else if( Mot2.Action == motor_backward ) {
+		if( Mot2.CurPosition > Mot2.PulseNum ) sum = Mot2.CurPosition - Mot2.PulseNum;
+	}
+	if( sum != 0 ) {
+		sum = (u32)(sum * c_HeightScaleFactor * c_PulseScaleFactor);
+		Mot2.CurHeight = sum / Mot2.PulseNumPerMm;
+	}
+	else Mot2.CurHeight = 0;
+
+	encode_count = Mot2ReadEncode() * (1000 / C_PID_RATE);
+	Mot2.PulseNumPerMin = encode_count * 60;
+	encode_count = (u32)(encode_count * c_SpeedScaleFactor * c_PulseScaleFactor);
+	if( encode_count != 0 ) Mot2.CurVelocity = (u32)(encode_count / Mot2.PulseNumPerMm);
+	else Mot2.CurVelocity = 0;
+
+	if( Mot2.TarPulseNum > Mot2.PulseNum ) {
+		remainingPulseNum = Mot2.TarPulseNum - Mot2.PulseNum;
+		PidTargetVelocity = Mot2.TarVelocity;
+		if( (remainingPulseNum < 20) && (PidTargetVelocity > 20) ) PidTargetVelocity = 20;
+		Pwm = Mot2VelocityFeedbackControl(PidTargetVelocity, Mot2.CurVelocity);
+	}
+	else {
+		Pwm = Mot2VelocityFeedbackControl(0, Mot2.CurVelocity);
+	}
+	TIM1_SetDuty_CH1(Pwm);
+#if 1
+	printf("M2.TarVel =%d\n", Mot2.TarVelocity);
+	printf("M2.CurVel =%d\n", Mot2.CurVelocity);
+	printf("M2.PulseNum =%d\n", Mot2.PulseNum);
+	printf("M2.CurHeight =%d\n", Mot2.CurHeight);
+	printf("M2.PulseNumPerMin=%d\n", Mot2.PulseNumPerMin);
+	printf("pwm =%d\n", Pwm);
+#endif
 }		
 
 
