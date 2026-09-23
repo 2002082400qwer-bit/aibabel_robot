@@ -123,6 +123,7 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3VelocityKd        50
 #define Mot3PidStartDuty      1500
 #define Mot3PidCruiseDuty     2500
+#define Mot3PidMinimumPwm     1500
 #define Mot3PidSlowDownPulseNum 50
 #define Mot3PidMinimumTargetVelocity 50
 
@@ -284,6 +285,10 @@ void Mot3VelocityControl(void)
 			if( PidTargetVelocity < Mot3PidMinimumTargetVelocity ) PidTargetVelocity = Mot3PidMinimumTargetVelocity;
 		}
 		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
+		/* 目标速度非零时保留最低驱动占空比，试验值沿用电机启动占空比。 */
+		if( (PidTargetVelocity != 0) && (Pwm < Mot3PidMinimumPwm) ) {
+			Pwm = Mot3PidMinimumPwm;
+		}
 	}
 	else {
 		Pwm = Mot3VelocityFeedbackControl(0, Mot3.CurVelocity);
