@@ -125,6 +125,7 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1VelocityKd        50
 #define Mot1PidStartDuty      1500
 #define Mot1PidCruiseDuty     2100
+#define Mot1PidMinimumPwm     1500
 
 static int32_t Mot1PidPreviousError = 0;
 static int32_t Mot1PidPreviousPreviousError = 0;
@@ -281,6 +282,10 @@ void Mot1VelocityControl(void)
 		PidTargetVelocity = Mot1.TarVelocity;
 		if( (remainingPulseNum < 50) && (PidTargetVelocity > 50) ) PidTargetVelocity = 50;
 		Pwm = Mot1VelocityFeedbackControl(PidTargetVelocity, Mot1.CurVelocity);
+		/* 目标速度非零时保留最低驱动占空比，试验值沿用电机启动占空比。 */
+		if( (PidTargetVelocity != 0) && (Pwm < Mot1PidMinimumPwm) ) {
+			Pwm = Mot1PidMinimumPwm;
+		}
 	}
 	else {
 		Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
