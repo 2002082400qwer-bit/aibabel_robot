@@ -122,7 +122,7 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3VelocityKi        2
 #define Mot3VelocityKd        50
 #define Mot3PidStartDuty      1500
-#define Mot3PidCruiseDuty     2400
+#define Mot3PidCruiseDuty     2500
 
 static int32_t Mot3PidPreviousError = 0;
 static int32_t Mot3PidPreviousPreviousError = 0;
