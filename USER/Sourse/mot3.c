@@ -120,7 +120,8 @@ u8 Mot3ReadDownHallState(void)
 // PID定点缩放系数，输出除以此值换算为PWM占空比。
 #define Mot3PidScale          100
 #define Mot3VelocityKp        250 // 速度误差变化时的比例响应系数。
-#define Mot3VelocityKi        2 // 持续速度误差的积分增量系数。
+#define Mot3VelocityKi        4 // 上位机运行时持续速度误差的积分系数。
+#define Mot3VelocityResetKi   2 // 复位时持续速度误差的积分系数。
 // 增量式PID微分系数，作用于误差二阶差分。
 #define Mot3VelocityKd        50
 // 复位状态下PID输出的初始PWM占空比。
@@ -173,7 +174,10 @@ static u16 Mot3VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 	Error = (int32_t)TargetVelocity - (int32_t)CurrentVelocity;
 	DeltaError = Error - Mot3PidPreviousError;
 	SecondDifference = Error - 2 * Mot3PidPreviousError + Mot3PidPreviousPreviousError;
-	DeltaOutputScaled = Mot3VelocityKp * DeltaError + Mot3VelocityKi * Error + Mot3VelocityKd * SecondDifference;
+	/* 复位沿用较小积分系数，正常运行使用试调积分系数。 */
+	DeltaOutputScaled = Mot3VelocityKp * DeltaError +
+		((Mot3.Reset != 0) ? Mot3VelocityResetKi : Mot3VelocityKi) * Error +
+		Mot3VelocityKd * SecondDifference;
 	OutputLimitScaled = (int32_t)c_MaxPwmDuty * Mot3PidScale;
 	Mot3PidOutputScaled += DeltaOutputScaled;
 	if( Mot3PidOutputScaled < 0 ) Mot3PidOutputScaled = 0;

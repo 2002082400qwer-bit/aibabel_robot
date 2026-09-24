@@ -121,7 +121,8 @@ u8 Mot1ReadRightHallState(void)
 /* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
 #define Mot1PidScale          100
 #define Mot1VelocityKp        250 // 速度误差变化时的比例响应系数。
-#define Mot1VelocityKi        2 // 持续速度误差的积分增量系数。
+#define Mot1VelocityKi        4 // 上位机运行时持续速度误差的积分系数。
+#define Mot1VelocityResetKi   2 // 复位时持续速度误差的积分系数。
 #define Mot1VelocityKd        50
 #define Mot1PidStartDuty      1500
 #define Mot1PidCruiseDuty     2100
@@ -166,7 +167,10 @@ static u16 Mot1VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 	Error = (int32_t)TargetVelocity - (int32_t)CurrentVelocity;
 	DeltaError = Error - Mot1PidPreviousError;
 	SecondDifference = Error - 2 * Mot1PidPreviousError + Mot1PidPreviousPreviousError;
-	DeltaOutputScaled = Mot1VelocityKp * DeltaError + Mot1VelocityKi * Error + Mot1VelocityKd * SecondDifference;
+	/* 复位沿用较小积分系数，正常运行使用试调积分系数。 */
+	DeltaOutputScaled = Mot1VelocityKp * DeltaError +
+		((Mot1.Reset != 0) ? Mot1VelocityResetKi : Mot1VelocityKi) * Error +
+		Mot1VelocityKd * SecondDifference;
 	OutputLimitScaled = (int32_t)c_MaxPwmDuty * Mot1PidScale;
 	Mot1PidOutputScaled += DeltaOutputScaled;
 	if( Mot1PidOutputScaled < 0 ) Mot1PidOutputScaled = 0;
