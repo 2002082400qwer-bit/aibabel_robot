@@ -188,9 +188,12 @@ static u16 Mot3VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 	return (u16)(Mot3PidOutputScaled / Mot3PidScale);
 }
 
+/**
+ * 函数作用：检测电机3编码脉冲；正常运行且电机未停稳时，在限位霍尔区域也累计脉冲。
+ */
 void Mot3Encode(void)
 {
-	u8 state;
+	u8 state; // 本次读取的编码器电平。
 	state = GPIO_ReadInputDataBit( Mot3PulseIO, Mot3PulsePin) ;
 	if( state != Mot3.PulseSta ) {
 		Mot3.PulseDebB = 0;
@@ -199,7 +202,8 @@ void Mot3Encode(void)
 				
 			Mot3.PulseSta = state;
       if( state != 0 ) {
-					 if( ( Mot3.Hall1Sta == 0 )&&( Mot3.Hall2Sta == 0 ) ) { 
+					 if( ((Mot3.Reset == 0) && (Mot3.Action != motor_stop)) ||
+				((Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0)) ) {
 							Mot3.PulseNum++;
 							Mot3.PulseNumB++;
 					 } 
@@ -479,9 +483,14 @@ void Mot3ActionHandle(void)
 	}		
 }	
 
+/**
+ * 函数作用：将电机3目标角度换算为脉冲位置，并按当前位置选择运动方向。
+ * Angle：目标角度，单位为0.1度。
+ * speed：目标运动速度。
+ */
 void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 {
-		u32 sum;
+		u32 sum; // 角度换算为脉冲位置的中间量。
 		Mot3.TarVelocity = speed;
 	  if( Angle >= (c_MaxAngle*10) ) Angle=c_MaxAngle*10;
 		printf("Angle =%d\n", Angle );
@@ -492,7 +501,8 @@ void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 	
 		//printf("sum =%d\n", sum );
 	
-		if( sum != 0 ) Mot3.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
+		if( Angle >= (c_MaxAngle*10) ) Mot3.TarPosition = Mot3.MaxPulseNum;
+		else if( sum != 0 ) Mot3.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
 		else Mot3.TarPosition = 0;
 		printf("M3.TarPos=%d\n", Mot3.TarPosition );
 	
