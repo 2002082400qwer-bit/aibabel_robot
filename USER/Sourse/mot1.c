@@ -120,7 +120,7 @@ u8 Mot1ReadRightHallState(void)
 
 /* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
 #define Mot1PidScale          100
-#define Mot1VelocityKp        100
+#define Mot1VelocityKp        250 // 速度误差变化时的比例响应系数。
 #define Mot1VelocityKi        2
 #define Mot1VelocityKd        50
 #define Mot1PidStartDuty      1500

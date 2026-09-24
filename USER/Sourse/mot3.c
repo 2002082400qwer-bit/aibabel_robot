@@ -119,8 +119,7 @@ u8 Mot3ReadDownHallState(void)
 /* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
 // PID定点缩放系数，输出除以此值换算为PWM占空比。
 #define Mot3PidScale          100
-// 增量式PID比例系数，作用于误差变化量。
-#define Mot3VelocityKp        100
+#define Mot3VelocityKp        250 // 速度误差变化时的比例响应系数。
 // 增量式PID积分系数，作用于当前误差。
 #define Mot3VelocityKi        2
 // 增量式PID微分系数，作用于误差二阶差分。
