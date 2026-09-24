@@ -15,6 +15,7 @@
 #define c_DefaultPulseNumPerAngle 20*c_PulseScaleFactor	//每度对应的脉冲数
 #define c_MoveTimeOver 20000							//20s,马达不转无脉冲输出时间
 #define Mot1TriggerAdc 2800
+#define Mot1StopDebTicks 30000 // 编码器连续300毫秒无电平变化才确认电机1停稳，SysTick周期为10微秒。
 //-----------------------------------------------------------------
 //	ram 
 //-----------------------------------------------------------------
@@ -186,7 +187,7 @@ static u16 Mot1VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 }
 
 /**
- * 函数作用：检测电机1编码脉冲；正常运行且电机未停稳时，在限位霍尔区域也累计脉冲。
+ * 函数作用：检测电机1编码脉冲和停稳时间；正常运行且电机未停稳时，在限位霍尔区域也累计脉冲。
  */
 void Mot1Encode(void)
 {
@@ -210,7 +211,7 @@ void Mot1Encode(void)
   else
   {
 		Mot1.PulseDeb = 0;
-		if( Mot1.PulseDebB < C_MotorStopDeb ) Mot1.PulseDebB++;
+		if( Mot1.PulseDebB < Mot1StopDebTicks ) Mot1.PulseDebB++;
   }
 }
 u16 Mot1ReadEncode(void)
@@ -245,11 +246,12 @@ void Mot1EnablePidControl(void)
 	Mot1.PidEn = Enable;
 }
 /**
- * 函数作用：关闭电机1速度PID并清零PWM和历史控制状态。
+ * 函数作用：关闭电机1速度PID、清零PWM和历史控制状态，并重新开始停稳计时。
  */
 void Mot1DisablePidControl(void)
 {
 	TIM1_SetDuty_CH3(0);
+	Mot1.PulseDebB = 0;
 	Mot1.PidEn = Disable;
 	Mot1PidReset(0);
 }
@@ -435,7 +437,7 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 }
 
 /**
- * 函数作用：处理电机1运动、限位刹车，并在停稳后更新当前位置和反馈角度。
+ * 函数作用：处理电机1运动、限位刹车，并在编码器连续300毫秒无变化后更新位置和角度。
  */
 void Mot1ActionHandle(void)
 {
@@ -478,7 +480,7 @@ void Mot1ActionHandle(void)
 	}		
 	else if( Mot1.Action == motor_brake )  {
 		
-			if( Mot1.PulseDebB >= C_MotorStopDeb )	{
+			if( Mot1.PulseDebB >= Mot1StopDebTicks )	{
 				
 				printf("m1 stop\n");
 				printf("M1.PulseNum =%d\n ",Mot1.PulseNum );
