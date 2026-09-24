@@ -69,3 +69,12 @@
 - 删除只赋初值、从未使用的结构体成员：Motor1St / Motor3St 的 ErrPulseNum 与 TarAngle，Move1St / Move3St 的 SpeedB。注意 mot1.h / mot3.h 被 .git/info/exclude 排除，不在本仓库版本管理内，这两处改动只保留在磁盘上。
 - 保留仍在使用的项：Kp/Kd、Mot1PidStartDuty、Mot1PidCruiseDuty、最低 PWM、末段渐降窗口、MotXPosCorr 回拉参数；保留 motor.h 中未被引用的 C_MinimumTarPulseNum、Mot1MaxAngle、Mot2MaxDistance、Mot3MaxAngle 以及限位开关引脚宏，后一组属于硬件接线记录，需要再删可以单独处理。
 - 本次只做删除与合并，未引入新逻辑；仍依赖“脉冲到位关 PWM + 停稳后残差回拉”的现有方案。未编译（本机 Keil 命令行受 license 限制）、未上板验证。提交只含本次清理，工作区里未提交的 PID 调参保持不变。
+
+## 2026-09-24 保留 ErrPulseNum / TarAngle / SpeedB 三个成员
+
+- 用户说明这三个结构体成员是留给后续功能用的，当前虽然还没被读取，但要保留、不能删。
+- 已把 mot1.h / mot3.h 恢复成参照工程版本（两个头文件现在与参照工程逐字节一致），重新包含 Motor1St / Motor3St 的 ErrPulseNum、TarAngle 以及 Move1St / Move3St 的 SpeedB。
+- mot1.c / mot3.c 的 Mot1Init / Mot3Init 里同步补回 MotX.ErrPulseNum = 0 与 MotX.TarAngle = 0 两条初始化语句，保持成员一上电就是确定值。
+- 上一轮一并删掉的 Mot1SetTargetPosition / Mot3SetTargetPosition 两个未被调用的 setter、c_AngleScaleFactor / c_SpeedScaleFactor 两个宏本次没有恢复；后续要用可以再补回来。
+- 另：adc.c、sys.c、cs1237.c、cs1237.h 与参照工程只差缩进和空行，已还原成参照工程版本。执行前已把整个工程（不含 Objects/Listings）备份到 E:\Aproject\aibabel_robot\FT32F103\V7_backup_20260924。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次恢复的成员和初始化语句，工作区里未提交的 PID 调参保持不变。

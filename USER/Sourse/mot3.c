@@ -35,6 +35,7 @@ void Mot3Init(void)
 	Mot3.PulseNum = 0;
 	Mot3.PulseNumB = 0;
 	Mot3.BrakeType = 0;
+	Mot3.ErrPulseNum = 0;
 	Mot3.TarPulseNum = 0;
 	Mot3.MaxPulseNum = c_DefaultTotalPulseNum;
 	Mot3.PulseNumPerAngle = c_DefaultPulseNumPerAngle;
@@ -43,6 +44,7 @@ void Mot3Init(void)
 	Mot3.TarPosition = 0;
 	Mot3.CurPosition = 0;	
 	Mot3.CurAngle = 0;
+	Mot3.TarAngle = 0;
 	Mot3.Hall1Sta = 0;
 	Mot3.Hall1Deb = 0;
 	Mot3.Hall2Sta = 0;
