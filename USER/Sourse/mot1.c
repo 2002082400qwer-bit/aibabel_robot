@@ -128,7 +128,7 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1PidStartDuty      1500
 #define Mot1PidCruiseDuty     2100
 // 上位机控制状态下的最低PWM占空比，同时作为启动占空比。
-#define Mot1PidHostMinimumPwm 2500
+#define Mot1PidHostMinimumPwm 3000 // 正常运行与复位回中前段的最低PWM，保证通过高负载区。
 #define Mot1PidApproachPulseNum 300 // 长行程结束前提前降速的脉冲窗口。
 #define Mot1PidApproachMinimumVelocity 50 // 末段速度指令的下限。
 #define Mot1PidApproachMinimumPwm 1800 // 末段PWM下限，避免完全失去驱动力。
