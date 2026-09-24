@@ -296,13 +296,13 @@ void Mot3VelocityControl(void)
 			if( PidTargetVelocity < Mot3PidMinimumTargetVelocity ) PidTargetVelocity = Mot3PidMinimumTargetVelocity;
 		}
 		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
-		/* 目标速度非零时保留最低驱动占空比，试验值沿用电机启动占空比。 */
+		/* 目标速度非零时，复位使用原下限，上位机运动全程使用运行下限。 */
 		if( (Mot3.Reset != 0) && (PidTargetVelocity != 0) &&
 			(Pwm < Mot3PidMinimumPwm) ) {
 			Pwm = Mot3PidMinimumPwm;
 		}
-		else if( (Mot3.Reset == 0) && (remainingPulseNum >= Mot3PidSlowDownPulseNum) &&
-			(PidTargetVelocity != 0) && (Pwm < Mot3PidHostMinimumPwm) ) {
+		else if( (Mot3.Reset == 0) && (PidTargetVelocity != 0) &&
+			(Pwm < Mot3PidHostMinimumPwm) ) {
 			Pwm = Mot3PidHostMinimumPwm;
 		}
 	}

@@ -286,9 +286,9 @@ void Mot1VelocityControl(void)
 		PidTargetVelocity = Mot1.TarVelocity;
 		if( (remainingPulseNum < 50) && (PidTargetVelocity > 50) ) PidTargetVelocity = 50;
 		Pwm = Mot1VelocityFeedbackControl(PidTargetVelocity, Mot1.CurVelocity);
-		/* 上位机运行阶段在减速区外维持最低PWM，复位和末段减速沿用原控制。 */
-		if( (Mot1.Reset == 0) && (remainingPulseNum >= 50) &&
-			(PidTargetVelocity != 0) && (Pwm < Mot1PidHostMinimumPwm) ) {
+		/* 上位机运动未完成且目标速度非零时保持最低PWM，避免减速阶段失去驱动力。 */
+		if( (Mot1.Reset == 0) && (PidTargetVelocity != 0) &&
+			(Pwm < Mot1PidHostMinimumPwm) ) {
 			Pwm = Mot1PidHostMinimumPwm;
 		}
 	}
