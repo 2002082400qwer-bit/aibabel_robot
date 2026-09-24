@@ -133,6 +133,8 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1PidApproachMinimumVelocity 50 // 末段速度指令的下限。
 #define Mot1PidApproachMinimumPwm 1800 // 末段PWM下限，避免完全失去驱动力。
 #define Mot1PidApproachMaximumPwm 2200 // 到目标前允许的PWM上限。
+#define Mot1PidResetApproachMinimumPwm 1500 // 复位回中末段的PWM下限，参考旧版末段驱动。
+#define Mot1PidResetApproachMaximumPwm 1800 // 复位回中末段的PWM上限，限制冲过中点。
 
 static int32_t Mot1PidPreviousError = 0;
 static int32_t Mot1PidPreviousPreviousError = 0;
@@ -277,6 +279,8 @@ void Mot1VelocityControl(void)
     u32 encode_count; // 本控制周期测得的编码脉冲换算量。
     u32 remainingPulseNum; // 距本次目标剩余的编码脉冲数。
     u32 approachPulseNum; // 本次运动末段提前降速的脉冲窗口。
+    u16 approachMinimumPwm; // 本次运动末段PWM下限。
+    u16 approachMaximumPwm; // 本次运动末段PWM上限。
 
     if( Mot1.PidEn == 0 ) return;
     if( Mot1.PidTimer < C_PID_RATE ) return;
@@ -302,11 +306,14 @@ void Mot1VelocityControl(void)
     if( encode_count != 0 ) Mot1.CurVelocity = (u32)(encode_count / Mot1.PulseNumPerAngle);
     else Mot1.CurVelocity = 0;
 
-    // 回中行程不足两个固定窗口时，提前在半程处开始降速。
+    // 复位回中先保持驱动力穿过约三分之一行程的重载区，再在余下三分之一回中行程降速。
     approachPulseNum = Mot1PidApproachPulseNum;
-    if( (Mot1.Reset != 0) && (Mot1.Step == 3) &&
-        (Mot1.TarPulseNum < 2 * approachPulseNum) ) {
-        approachPulseNum = Mot1.TarPulseNum / 2;
+    approachMinimumPwm = Mot1PidApproachMinimumPwm;
+    approachMaximumPwm = Mot1PidApproachMaximumPwm;
+    if( (Mot1.Reset != 0) && (Mot1.Step == 3) ) {
+        approachPulseNum = Mot1.TarPulseNum / 3;
+        approachMinimumPwm = Mot1PidResetApproachMinimumPwm;
+        approachMaximumPwm = Mot1PidResetApproachMaximumPwm;
     }
 
     if( Mot1.TarPulseNum > Mot1.PulseNum ) {
@@ -330,11 +337,11 @@ void Mot1VelocityControl(void)
             if( (approachPulseNum != 0) &&
                 (Mot1.TarPulseNum >= 2 * approachPulseNum) &&
                 (remainingPulseNum < approachPulseNum) ) {
-                MinimumPwm = Mot1PidApproachMinimumPwm +
-                    (Mot1PidHostMinimumPwm - Mot1PidApproachMinimumPwm) *
+                MinimumPwm = approachMinimumPwm +
+                    (Mot1PidHostMinimumPwm - approachMinimumPwm) *
                     remainingPulseNum / approachPulseNum;
-                MaximumPwm = Mot1PidApproachMaximumPwm +
-                    (c_MaxPwmDuty - Mot1PidApproachMaximumPwm) *
+                MaximumPwm = approachMaximumPwm +
+                    (c_MaxPwmDuty - approachMaximumPwm) *
                     remainingPulseNum / approachPulseNum;
                 if( Pwm > MaximumPwm ) Pwm = MaximumPwm;
             }

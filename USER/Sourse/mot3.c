@@ -549,6 +549,7 @@ void Mot3MoveTask(void)
 		}		
 }	
 
+/* 函数作用：扫描电机3限位并执行复位、标定及回中流程。 */
 void Mot3MoveService(void)
 {
 		u32 total;
