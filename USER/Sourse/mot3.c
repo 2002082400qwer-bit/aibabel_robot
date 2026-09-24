@@ -129,8 +129,10 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3PidStartDuty      1500
 // 非复位状态下PID输出的初始PWM占空比。
 #define Mot3PidCruiseDuty     2500
-// 目标速度非零时PID输出的最低PWM占空比。
+// 复位状态下目标速度非零时PID输出的最低PWM占空比。
 #define Mot3PidMinimumPwm     1500
+// 上位机控制状态下的最低PWM占空比。
+#define Mot3PidHostMinimumPwm 2500
 // 剩余脉冲小于此值时进入减速阶段。
 #define Mot3PidSlowDownPulseNum 50
 // 减速阶段目标速度下限，单位同TarVelocity和CurVelocity。
@@ -295,8 +297,13 @@ void Mot3VelocityControl(void)
 		}
 		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
 		/* 目标速度非零时保留最低驱动占空比，试验值沿用电机启动占空比。 */
-		if( (PidTargetVelocity != 0) && (Pwm < Mot3PidMinimumPwm) ) {
+		if( (Mot3.Reset != 0) && (PidTargetVelocity != 0) &&
+			(Pwm < Mot3PidMinimumPwm) ) {
 			Pwm = Mot3PidMinimumPwm;
+		}
+		else if( (Mot3.Reset == 0) && (remainingPulseNum >= Mot3PidSlowDownPulseNum) &&
+			(PidTargetVelocity != 0) && (Pwm < Mot3PidHostMinimumPwm) ) {
+			Pwm = Mot3PidHostMinimumPwm;
 		}
 	}
 	else {

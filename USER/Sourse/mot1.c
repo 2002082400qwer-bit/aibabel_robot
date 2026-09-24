@@ -125,7 +125,8 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1VelocityKd        50
 #define Mot1PidStartDuty      1500
 #define Mot1PidCruiseDuty     2100
-#define Mot1PidMinimumPwm     1500
+// 上位机控制状态下的最低PWM占空比，同时作为启动占空比。
+#define Mot1PidHostMinimumPwm 2500
 
 static int32_t Mot1PidPreviousError = 0;
 static int32_t Mot1PidPreviousPreviousError = 0;
@@ -224,8 +225,11 @@ void Mot1EnablePidControl(void)
 {
 	Mot1ClearEncode();
 	Mot1.CurVelocity = 0;
-	if( Mot1.TarPulseNum >= 50 ) Mot1PidReset(Mot1PidCruiseDuty);
-	else Mot1PidReset(Mot1PidStartDuty);
+	if( Mot1.Reset != 0 ) {
+		if( Mot1.TarPulseNum >= 50 ) Mot1PidReset(Mot1PidCruiseDuty);
+		else Mot1PidReset(Mot1PidStartDuty);
+	}
+	else Mot1PidReset(Mot1PidHostMinimumPwm);
 	Mot1.PidEn = Enable;
 }
 /**
@@ -282,9 +286,10 @@ void Mot1VelocityControl(void)
 		PidTargetVelocity = Mot1.TarVelocity;
 		if( (remainingPulseNum < 50) && (PidTargetVelocity > 50) ) PidTargetVelocity = 50;
 		Pwm = Mot1VelocityFeedbackControl(PidTargetVelocity, Mot1.CurVelocity);
-		/* 目标速度非零时保留最低驱动占空比，试验值沿用电机启动占空比。 */
-		if( (PidTargetVelocity != 0) && (Pwm < Mot1PidMinimumPwm) ) {
-			Pwm = Mot1PidMinimumPwm;
+		/* 上位机运行阶段在减速区外维持最低PWM，复位和末段减速沿用原控制。 */
+		if( (Mot1.Reset == 0) && (remainingPulseNum >= 50) &&
+			(PidTargetVelocity != 0) && (Pwm < Mot1PidHostMinimumPwm) ) {
+			Pwm = Mot1PidHostMinimumPwm;
 		}
 	}
 	else {
