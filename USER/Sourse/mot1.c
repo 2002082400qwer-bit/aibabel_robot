@@ -128,6 +128,10 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1PidCruiseDuty     2100
 // 上位机控制状态下的最低PWM占空比，同时作为启动占空比。
 #define Mot1PidHostMinimumPwm 2500
+#define Mot1PidApproachPulseNum 300 // 长行程结束前提前降速的脉冲窗口。
+#define Mot1PidApproachMinimumVelocity 50 // 末段速度指令的下限。
+#define Mot1PidApproachMinimumPwm 1800 // 末段PWM下限，避免完全失去驱动力。
+#define Mot1PidApproachMaximumPwm 2200 // 到目标前允许的PWM上限。
 
 static int32_t Mot1PidPreviousError = 0;
 static int32_t Mot1PidPreviousPreviousError = 0;
@@ -254,62 +258,88 @@ void Mot1SetTargetPosition( u16 num )
 	Mot1.TarPosition = num;
 }	
 /**
- * 函数作用：按固定周期更新电机1位置、编码器速度和PID PWM输出。
+ * 函数作用：每50毫秒更新电机1位置、速度与PWM；长行程末段渐进降速，
+ *          复位回中点时保持中段驱动力，并打印右转霍尔原始值供限位分析。
  */
 void Mot1VelocityControl(void)
 {
-	u16 Pwm, PidTargetVelocity;
-	u32 sum, encode_count, remainingPulseNum;
+    u16 Pwm; // 本周期写入定时器的PWM占空比。
+    u16 PidTargetVelocity; // 经过末段降速处理的目标速度。
+    u16 MinimumPwm; // 本周期运动所需的最低PWM。
+    u16 MaximumPwm; // 末段避免高速撞击的最高PWM。
+    u32 sum; // 根据本次编码脉冲换算的位置中间量。
+    u32 encode_count; // 本控制周期测得的编码脉冲换算量。
+    u32 remainingPulseNum; // 距本次目标剩余的编码脉冲数。
 
-	if( Mot1.PidEn == 0 ) return;
-	if( Mot1.PidTimer < C_PID_RATE ) return;
+    if( Mot1.PidEn == 0 ) return;
+    if( Mot1.PidTimer < C_PID_RATE ) return;
 
-	Mot1.PidTimer = Mot1.PidTimer - C_PID_RATE;
-	sum = 0;
-	if( Mot1.Action == motor_forward ) {
-		sum = Mot1.CurPosition + Mot1.PulseNum;
-		if( sum > Mot1.MaxPulseNum ) sum = Mot1.MaxPulseNum;
-	}
-	else if( Mot1.Action == motor_backward ) {
-		if( Mot1.CurPosition > Mot1.PulseNum ) sum = Mot1.CurPosition - Mot1.PulseNum;
-	}
-	if( sum != 0 ) {
-		sum = (u32)(sum * c_AngleScaleFactor * c_PulseScaleFactor);
-		Mot1.CurAngle = sum / Mot1.PulseNumPerAngle;
-	}
-	else Mot1.CurAngle = 0;
+    Mot1.PidTimer = Mot1.PidTimer - C_PID_RATE;
+    sum = 0;
+    if( Mot1.Action == motor_forward ) {
+        sum = Mot1.CurPosition + Mot1.PulseNum;
+        if( sum > Mot1.MaxPulseNum ) sum = Mot1.MaxPulseNum;
+    }
+    else if( Mot1.Action == motor_backward ) {
+        if( Mot1.CurPosition > Mot1.PulseNum ) sum = Mot1.CurPosition - Mot1.PulseNum;
+    }
+    if( sum != 0 ) {
+        sum = (u32)(sum * c_AngleScaleFactor * c_PulseScaleFactor);
+        Mot1.CurAngle = sum / Mot1.PulseNumPerAngle;
+    }
+    else Mot1.CurAngle = 0;
 
-	encode_count = Mot1ReadEncode() * (1000 / C_PID_RATE);
-	Mot1.PulseNumPerMin = encode_count * 60;
-	encode_count = (u32)(encode_count * c_RadianScaleFactor * c_PulseScaleFactor);
-	if( encode_count != 0 ) Mot1.CurVelocity = (u32)(encode_count / Mot1.PulseNumPerAngle);
-	else Mot1.CurVelocity = 0;
+    encode_count = Mot1ReadEncode() * (1000 / C_PID_RATE);
+    Mot1.PulseNumPerMin = encode_count * 60;
+    encode_count = (u32)(encode_count * c_RadianScaleFactor * c_PulseScaleFactor);
+    if( encode_count != 0 ) Mot1.CurVelocity = (u32)(encode_count / Mot1.PulseNumPerAngle);
+    else Mot1.CurVelocity = 0;
 
-	if( Mot1.TarPulseNum > Mot1.PulseNum ) {
-		remainingPulseNum = Mot1.TarPulseNum - Mot1.PulseNum;
-		PidTargetVelocity = Mot1.TarVelocity;
-		if( (remainingPulseNum < 50) && (PidTargetVelocity > 50) ) PidTargetVelocity = 50;
-		Pwm = Mot1VelocityFeedbackControl(PidTargetVelocity, Mot1.CurVelocity);
-		/* 上位机运动未完成且目标速度非零时保持最低PWM，避免减速阶段失去驱动力。 */
-		if( (Mot1.Reset == 0) && (PidTargetVelocity != 0) &&
-			(Pwm < Mot1PidHostMinimumPwm) ) {
-			Pwm = Mot1PidHostMinimumPwm;
-		}
-	}
-	else {
-		Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
-	}
-	TIM1_SetDuty_CH3(Pwm);
+    if( Mot1.TarPulseNum > Mot1.PulseNum ) {
+        remainingPulseNum = Mot1.TarPulseNum - Mot1.PulseNum;
+        PidTargetVelocity = Mot1.TarVelocity;
+        if( ((Mot1.Reset == 0) || (Mot1.Step == 3)) &&
+            (Mot1.TarPulseNum >= 2 * Mot1PidApproachPulseNum) &&
+            (remainingPulseNum < Mot1PidApproachPulseNum) &&
+            (PidTargetVelocity > Mot1PidApproachMinimumVelocity) ) {
+            PidTargetVelocity = (u16)(((u32)Mot1.TarVelocity * remainingPulseNum) / Mot1PidApproachPulseNum);
+            if( PidTargetVelocity < Mot1PidApproachMinimumVelocity )
+                PidTargetVelocity = Mot1PidApproachMinimumVelocity;
+        }
+        else if( (remainingPulseNum < 50) && (PidTargetVelocity > 50) ) {
+            PidTargetVelocity = 50;
+        }
+        Pwm = Mot1VelocityFeedbackControl(PidTargetVelocity, Mot1.CurVelocity);
+        if( (PidTargetVelocity != 0) && ((Mot1.Reset == 0) || (Mot1.Step == 3)) ) {
+            MinimumPwm = Mot1PidHostMinimumPwm;
+            if( (Mot1.TarPulseNum >= 2 * Mot1PidApproachPulseNum) &&
+                (remainingPulseNum < Mot1PidApproachPulseNum) ) {
+                MinimumPwm = Mot1PidApproachMinimumPwm +
+                    (Mot1PidHostMinimumPwm - Mot1PidApproachMinimumPwm) *
+                    remainingPulseNum / Mot1PidApproachPulseNum;
+                MaximumPwm = Mot1PidApproachMaximumPwm +
+                    (c_MaxPwmDuty - Mot1PidApproachMaximumPwm) *
+                    remainingPulseNum / Mot1PidApproachPulseNum;
+                if( Pwm > MaximumPwm ) Pwm = MaximumPwm;
+            }
+            if( Pwm < MinimumPwm ) Pwm = MinimumPwm;
+        }
+    }
+    else {
+        Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
+    }
+    TIM1_SetDuty_CH3(Pwm);
 #if 1
-	printf("M1.TarVel =%d\n", Mot1.TarVelocity);
-	printf("M1.CurVel =%d\n", Mot1.CurVelocity);
-	printf("M1.PulseNum =%d\n", Mot1.PulseNum);
-	printf("M1.CurAngle=%d\n", Mot1.CurAngle);
-	printf("M1.PulseNumPerMin=%d\n", Mot1.PulseNumPerMin);
-	printf("pwm =%d\n", Pwm);
+    printf("M1.TarVel =%d\n", Mot1.TarVelocity);
+    printf("M1.CurVel =%d\n", Mot1.CurVelocity);
+    printf("M1.PulseNum =%d\n", Mot1.PulseNum);
+    printf("M1.CurAngle=%d\n", Mot1.CurAngle);
+    printf("M1.PulseNumPerMin=%d\n", Mot1.PulseNumPerMin);
+    printf("pwm =%d\n", Pwm);
+    if( Mot1.Action == motor_backward )
+        printf("M1.Reset=%d Step=%d Hall1Adc=%d\n", Mot1.Reset, Mot1.Step, Adc.Mot1.Hall1);
 #endif
-}		
-
+}
 
 u8 Mot1ActionState(void)
 {
