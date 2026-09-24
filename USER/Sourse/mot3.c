@@ -189,7 +189,7 @@ static u16 Mot3VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 }
 
 /**
- * 函数作用：检测电机3编码脉冲；正常运行且电机未停稳时，在限位霍尔区域也累计脉冲。
+ * 函数作用：检测电机3编码脉冲；仅在两个限位霍尔均未触发时累计脉冲，与复位标定口径一致。
  */
 void Mot3Encode(void)
 {
@@ -202,8 +202,7 @@ void Mot3Encode(void)
 				
 			Mot3.PulseSta = state;
       if( state != 0 ) {
-					 if( ((Mot3.Reset == 0) && (Mot3.Action != motor_stop)) ||
-				((Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0)) ) {
+					 if( (Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0) ) {
 							Mot3.PulseNum++;
 							Mot3.PulseNumB++;
 					 } 
