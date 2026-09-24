@@ -117,15 +117,24 @@ u8 Mot3ReadDownHallState(void)
 }
 
 /* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
-#define Mot3PidScale          100  // PID定点缩放系数，输出除以此值换算为PWM占空比。
-#define Mot3VelocityKp        100  // 增量式PID比例系数，作用于误差变化量。
-#define Mot3VelocityKi        2    // 增量式PID积分系数，作用于当前误差。
-#define Mot3VelocityKd        50   // 增量式PID微分系数，作用于误差二阶差分。
-#define Mot3PidStartDuty      1500 // 复位状态下PID输出的初始PWM占空比。
-#define Mot3PidCruiseDuty     2500 // 非复位状态下PID输出的初始PWM占空比。
-#define Mot3PidMinimumPwm     1500 // 目标速度非零时PID输出的最低PWM占空比。
-#define Mot3PidSlowDownPulseNum 50 // 剩余脉冲小于此值时进入减速阶段。
-#define Mot3PidMinimumTargetVelocity 50 // 减速阶段目标速度下限，单位同TarVelocity和CurVelocity。
+// PID定点缩放系数，输出除以此值换算为PWM占空比。
+#define Mot3PidScale          100
+// 增量式PID比例系数，作用于误差变化量。
+#define Mot3VelocityKp        100
+// 增量式PID积分系数，作用于当前误差。
+#define Mot3VelocityKi        2
+// 增量式PID微分系数，作用于误差二阶差分。
+#define Mot3VelocityKd        50
+// 复位状态下PID输出的初始PWM占空比。
+#define Mot3PidStartDuty      1500
+// 非复位状态下PID输出的初始PWM占空比。
+#define Mot3PidCruiseDuty     2500
+// 目标速度非零时PID输出的最低PWM占空比。
+#define Mot3PidMinimumPwm     1500
+// 剩余脉冲小于此值时进入减速阶段。
+#define Mot3PidSlowDownPulseNum 50
+// 减速阶段目标速度下限，单位同TarVelocity和CurVelocity。
+#define Mot3PidMinimumTargetVelocity 50
 
 static int32_t Mot3PidPreviousError = 0;
 static int32_t Mot3PidPreviousPreviousError = 0;

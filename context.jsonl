@@ -40,3 +40,4 @@
 {"date":"2026-09-23","summary":"用户询问速度和PWM的转换位置。已定位M1主链路：USER/Sourse/mot1.c 的 Mot1VelocityControl 计算编码器当前速度并调用 Mot1VelocityFeedbackControl；该PID按目标速度和当前速度误差增量调节输出，限制0..c_MaxPwmDuty后写入TIM1_SetDuty_CH3。Mot1SetAngleSpeed/Mot1MoveForward将传入speed赋给TarVelocity，没有独立的速度到PWM固定换算。PWM定时器范围配置在USER/Sourse/pwm.c（PSC=0、ARR=4799），比较值写CCR；上限宏在USER/Include/pwm.h为4800。相同结构存在mot2.c和mot3.c。本次未改电机源文件，只在context.jsonl记事并提交该文件，保留已有mot1.c和mot3.c工作区改动。"}
 {"summary":"用户问候“你好”。按工程约定查看了根目录 RequirementDocument.md，记录的需求为给三个电机增加 PID，并做好版本管理和修改记录。工作区已有 USER/Sourse/mot1.c 与 USER/Sourse/mot3.c 未提交修改，本轮未触碰。","date":"2026-09-24"}
 {"summary":"按用户要求，仅给USER/Sourse/mot3.c中的九个PID宏补充中文注释，说明缩放、增量式PID系数、初始占空比、最低PWM、减速脉冲窗口和最低目标速度；不改控制逻辑。为避免纳入既有未提交修改，提交时只暂存了注释和本会话记录，mot1.c与mot3.c其他工作区改动保留。","date":"2026-09-24"}
+{"summary":"用户反馈IDE中不易看到M3 PID宏注释。确认注释原在#define行尾后，将九条中文注释移到对应宏定义上方，便于直接查看；未改宏值或控制逻辑，保留既有mot1.c和mot3.c工作区修改。","date":"2026-09-24"}
