@@ -120,8 +120,7 @@ u8 Mot3ReadDownHallState(void)
 // PID定点缩放系数，输出除以此值换算为PWM占空比。
 #define Mot3PidScale          100
 #define Mot3VelocityKp        250 // 速度误差变化时的比例响应系数。
-// 增量式PID积分系数，作用于当前误差。
-#define Mot3VelocityKi        2
+#define Mot3VelocityKi        10 // 持续速度误差的积分增量系数。
 // 增量式PID微分系数，作用于误差二阶差分。
 #define Mot3VelocityKd        50
 // 复位状态下PID输出的初始PWM占空比。
