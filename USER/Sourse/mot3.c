@@ -9,7 +9,9 @@
 *******************************************************************************/
 #define c_MaxAngle 	65								//最大角65度
 #define c_PulseScaleFactor 10				//10倍
+#define c_AngleScaleFactor 10					//10倍
 #define c_RadianScaleFactor 10				//10倍
+#define c_SpeedScaleFactor  20				//10倍
 #define c_DefaultTotalPulseNum	3600	//总的脉冲数
 #define c_DefaultPulseNumPerAngle 20*c_PulseScaleFactor	//每度对应的脉冲数
 #define c_MoveTimeOver 30000					//30s,马达不转无脉冲输出时间
@@ -34,8 +36,8 @@ void Mot3Init(void)
 	Mot3.PulseDebB = 0;
 	Mot3.PulseNum = 0;
 	Mot3.PulseNumB = 0;
-	Mot3.BrakeType = 0;
 	Mot3.ErrPulseNum = 0;
+	Mot3.BrakeType = 0;
 	Mot3.TarPulseNum = 0;
 	Mot3.MaxPulseNum = c_DefaultTotalPulseNum;
 	Mot3.PulseNumPerAngle = c_DefaultPulseNumPerAngle;
@@ -118,7 +120,8 @@ u8 Mot3ReadDownHallState(void)
 // PID定点缩放系数，输出除以此值换算为PWM占空比。
 #define Mot3PidScale          100
 #define Mot3VelocityKp        250 // 速度误差变化时的比例响应系数。
-#define Mot3VelocityKi        4 // 运行和复位共用的持续速度误差积分系数。
+#define Mot3VelocityKi        4 // 上位机运行时持续速度误差的积分系数。
+#define Mot3VelocityResetKi   2 // 复位时持续速度误差的积分系数。
 // 增量式PID微分系数，作用于误差二阶差分。
 #define Mot3VelocityKd        50
 // 复位状态下PID输出的初始PWM占空比。
@@ -184,9 +187,9 @@ static u16 Mot3VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 	Error = (int32_t)TargetVelocity - (int32_t)CurrentVelocity;
 	DeltaError = Error - Mot3PidPreviousError;
 	SecondDifference = Error - 2 * Mot3PidPreviousError + Mot3PidPreviousPreviousError;
-	/* 运行和复位共用同一个积分系数，不再区分复位/运行两套Ki。 */
+	/* 复位沿用较小积分系数，正常运行使用试调积分系数。 */
 	DeltaOutputScaled = Mot3VelocityKp * DeltaError +
-		Mot3VelocityKi * Error +
+		((Mot3.Reset != 0) ? Mot3VelocityResetKi : Mot3VelocityKi) * Error +
 		Mot3VelocityKd * SecondDifference;
 	OutputLimitScaled = (int32_t)c_MaxPwmDuty * Mot3PidScale;
 	Mot3PidOutputScaled += DeltaOutputScaled;
@@ -265,6 +268,10 @@ void Mot3DisablePidControl(void)
 void Mot3SetCurrentPosition( u16 num )
 {
 	Mot3.CurPosition = num;
+}	
+void Mot3SetTargetPosition( u16 num )
+{
+	Mot3.TarPosition = num;
 }	
 /**
  * 函数作用：按固定周期更新电机3位置、编码器速度和PID PWM输出。
@@ -474,6 +481,8 @@ void Mot3ActionHandle(void)
 				printf("M3 stop\n");
 				printf("M3.PulseNum =%d\n",Mot3.PulseNum );
 				printf("M3.TarPulseNum =%d\n ",Mot3.TarPulseNum );
+				//Mot3.ErrPulseNum = Mot3.PulseNum - Mot3.TarPulseNum;
+				//printf("Mot3.ErrPulseNum =%d\n",Mot3.ErrPulseNum);
 
 				if( Mot3.BrakeType == pulse_forward_brake ) {
 					Mot3.CurPosition += Mot3.PulseNum;

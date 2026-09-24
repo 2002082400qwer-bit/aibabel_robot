@@ -78,3 +78,13 @@
 - 上一轮一并删掉的 Mot1SetTargetPosition / Mot3SetTargetPosition 两个未被调用的 setter、c_AngleScaleFactor / c_SpeedScaleFactor 两个宏本次没有恢复；后续要用可以再补回来。
 - 另：adc.c、sys.c、cs1237.c、cs1237.h 与参照工程只差缩进和空行，已还原成参照工程版本。执行前已把整个工程（不含 Objects/Listings）备份到 E:\Aproject\aibabel_robot\FT32F103\V7_backup_20260924。
 - 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次恢复的成员和初始化语句，工作区里未提交的 PID 调参保持不变。
+
+## 2026-09-24 把上轮清理删掉的代码全部加回
+
+- 用户要求：上一轮清理（提交 b901540）删掉的宏、函数、注释全部加回来，包括复位/运行两套积分系数。
+- mot1.c / mot3.c 已恢复：c_AngleScaleFactor 宏（mot3.c 另有 c_SpeedScaleFactor）、Mot1SetTargetPosition / Mot3SetTargetPosition 两个 setter 函数、Mot1ActionHandle / Mot3ActionHandle 里注释掉的 ErrPulseNum 调试两行。
+- 积分系数恢复为两套：Mot1VelocityKi 与 Mot1VelocityResetKi（工作区取值为 2 和 4）、Mot3VelocityKi 与 Mot3VelocityResetKi（工作区取值为 4 和 2），积分项恢复为 ((MotX.Reset != 0) ? MotX VelocityResetKi : MotXVelocityKi) 的三元选择，即复位段与运行段重新使用不同 Ki。
+- 结构体成员 ErrPulseNum / TarAngle / SpeedB 与 MotXInit 中的初始化语句在上一轮已恢复；本次把 Mot3Init 里 ErrPulseNum 与 BrakeType 的顺序也对齐成清理前的原始顺序，两个源文件现在与“清理前备份”逐字节一致。
+- 提交内容按 HEAD 基线重建，等价于恢复成清理前（提交 a8450ba）的源文件内容；工作区里用户的 PID 调参（Kp/Ki/最低 PWM/复位速度等）仍保持未提交状态，与之前一致。
+- 顺带核对：两工程当前只剩 robot.uvoptx、motor.h、mot1.c、mot2.c、mot3.c、motor.c 六个文件不同。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证。
