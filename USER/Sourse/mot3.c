@@ -131,8 +131,7 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3PidCruiseDuty     2500
 // 复位状态下目标速度非零时PID输出的最低PWM占空比。
 #define Mot3PidMinimumPwm     1500
-// 上位机控制状态下的最低PWM占空比。
-#define Mot3PidHostMinimumPwm 2500
+#define Mot3PidHostMinimumPwm 2500 // 上位机控制时的最低PWM占空比。
 // 剩余脉冲小于此值时进入减速阶段。
 #define Mot3PidSlowDownPulseNum 50
 // 减速阶段目标速度下限，单位同TarVelocity和CurVelocity。
