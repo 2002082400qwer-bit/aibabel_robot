@@ -287,9 +287,9 @@ void Mot1VelocityControl(void)
     else if( Mot1.Action == motor_backward ) {
         if( Mot1.CurPosition > Mot1.PulseNum ) sum = Mot1.CurPosition - Mot1.PulseNum;
     }
-    if( sum != 0 ) {
-        sum = (u32)(sum * c_AngleScaleFactor * c_PulseScaleFactor);
-        Mot1.CurAngle = sum / Mot1.PulseNumPerAngle;
+    if( (sum != 0) && (Mot1.MaxPulseNum != 0) ) {
+        // 按完整标定行程换算，避免每度脉冲整数截断造成角度上报偏大。
+        Mot1.CurAngle = (sum * c_MaxAngle * 10) / Mot1.MaxPulseNum;
     }
     else Mot1.CurAngle = 0;
 
@@ -424,6 +424,9 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 		Mot1.PidTimerB = 0;
 }
 
+/**
+ * 函数作用：处理电机1运动、限位刹车，并在停稳后更新当前位置和反馈角度。
+ */
 void Mot1ActionHandle(void)
 {
 	if( Mot1.Action == motor_forward ) {
@@ -494,7 +497,9 @@ void Mot1ActionHandle(void)
 				}	
 				printf("M1.CurPos =%d\n ",Mot1.CurPosition );
 				printf("M1.CurAngle=%d\n", Mot1.CurAngle);
-				Mot1.CurAngle = (u32)(Mot1.CurPosition*c_AngleScaleFactor*c_PulseScaleFactor)/Mot1.PulseNumPerAngle; 
+				if( Mot1.MaxPulseNum != 0 )
+					Mot1.CurAngle = (u32)Mot1.CurPosition*(c_MaxAngle*10)/Mot1.MaxPulseNum;
+				else Mot1.CurAngle = 0;
 				Mot1.CurVelocity = 0;
 				Mot1.Action = motor_stop;				
 		}		
@@ -508,7 +513,7 @@ void Mot1ActionHandle(void)
  */
 void Mot1SetAngleSpeed( u16 Angle, u16 speed )
 {
-		u32 sum; // 角度换算为脉冲位置的中间量。
+		u32 sum; // 目标角度乘标定总脉冲数的中间量。
 	
 	 if( Angle >= (c_MaxAngle*10) ) Angle=c_MaxAngle*10;
 	
@@ -516,11 +521,10 @@ void Mot1SetAngleSpeed( u16 Angle, u16 speed )
 	
 		printf("M1.PulseNumPerAngle =%d\n", Mot1.PulseNumPerAngle );
 	
-		sum = (u32)Angle*Mot1.PulseNumPerAngle;
+		sum = (u32)Angle*Mot1.MaxPulseNum;
 	
 		//printf("sum =%d\n", sum );
-		if( Angle >= (c_MaxAngle*10) ) Mot1.TarPosition = Mot1.MaxPulseNum;
-		else if( sum != 0 ) 	Mot1.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
+		if( Mot1.MaxPulseNum != 0 ) Mot1.TarPosition = sum/(c_MaxAngle*10);
 		else Mot1.TarPosition = 0;
 		printf("M1.TarPos =%d\n", Mot1.TarPosition );
 	

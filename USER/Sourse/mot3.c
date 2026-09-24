@@ -280,9 +280,9 @@ void Mot3VelocityControl(void)
 	else if( Mot3.Action == motor_backward ) {
 		if( Mot3.CurPosition > Mot3.PulseNum ) sum = Mot3.CurPosition - Mot3.PulseNum;
 	}
-	if( sum != 0 ) {
-		sum = (u32)(sum * c_AngleScaleFactor * c_PulseScaleFactor);
-		Mot3.CurAngle = sum / Mot3.PulseNumPerAngle;
+	if( (sum != 0) && (Mot3.MaxPulseNum != 0) ) {
+		// 按完整标定行程换算，避免每度脉冲整数截断造成角度上报偏大。
+		Mot3.CurAngle = (sum * c_MaxAngle * 10) / Mot3.MaxPulseNum;
 	}
 	else Mot3.CurAngle = 0;
 
@@ -405,6 +405,9 @@ void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 		
 }
 
+/**
+ * 函数作用：处理电机3运动、限位刹车，并在停稳后更新当前位置和反馈角度。
+ */
 void Mot3ActionHandle(void)
 {
 	if( Mot3.Action == motor_forward ) {
@@ -475,7 +478,9 @@ void Mot3ActionHandle(void)
 				}	
 				printf("M3.CurPos=%d\n ",Mot3.CurPosition );
 				printf("M3.CurAngle=%d\n", Mot3.CurAngle);
-				Mot3.CurAngle = (u32)(Mot3.CurPosition*c_AngleScaleFactor*c_PulseScaleFactor)/Mot3.PulseNumPerAngle; 
+				if( Mot3.MaxPulseNum != 0 )
+					Mot3.CurAngle = (u32)Mot3.CurPosition*(c_MaxAngle*10)/Mot3.MaxPulseNum;
+				else Mot3.CurAngle = 0;
 				Mot3.CurVelocity = 0;
 				Mot3.Action = motor_stop;				
 		}		
@@ -489,19 +494,18 @@ void Mot3ActionHandle(void)
  */
 void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 {
-		u32 sum; // 角度换算为脉冲位置的中间量。
+		u32 sum; // 目标角度乘标定总脉冲数的中间量。
 		Mot3.TarVelocity = speed;
 	  if( Angle >= (c_MaxAngle*10) ) Angle=c_MaxAngle*10;
 		printf("Angle =%d\n", Angle );
 		printf("speed =%d\n", speed );
 		printf("M3.PulseNumPerAngle =%d\n", Mot3.PulseNumPerAngle );
 	
-		sum = (u32)Angle*Mot3.PulseNumPerAngle;
+		sum = (u32)Angle*Mot3.MaxPulseNum;
 	
 		//printf("sum =%d\n", sum );
 	
-		if( Angle >= (c_MaxAngle*10) ) Mot3.TarPosition = Mot3.MaxPulseNum;
-		else if( sum != 0 ) Mot3.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
+		if( Mot3.MaxPulseNum != 0 ) Mot3.TarPosition = sum/(c_MaxAngle*10);
 		else Mot3.TarPosition = 0;
 		printf("M3.TarPos=%d\n", Mot3.TarPosition );
 	
