@@ -100,3 +100,13 @@
 - 回拉改成走中间目标（当前位置 ± 一半残差），走完后把 TarPosition 改回真正的目标位置，保证下一次残差判断仍以真正目标为准；死区、次数上限、2000 ms 超时逻辑不变。Mot1 原来的“回拉时按半程收减速窗口”的临时分支已删除，避免和新的小力窗口叠加。
 - 现场调参：回拉完全不动说明力度不够，把 MotXPosCorrMinimumPwm/MaximumPwm 调大；仍然冲过目标就把 MotXPosCorrRatioPercent 调小（如 30），或把 MaximumPwm 再降。
 - 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次回拉参数与算法改动，工作区其余调参不变。
+
+## 2026-09-24 Mot3 回拉范围放宽 + 回拉无效保护
+
+- 用户反馈 Mot3 偏移仍然很厉害。核对参数发现原因：Mot3 原回拉上限只有 6.0 度，十几度的偏差直接按“异常”跳过，等于根本没有参与回拉。
+- 放宽可修正范围：Mot3PosCorrMaxAngle 由 60（6.0 度）改为 250（25.0 度）；Mot1PosCorrMaxAngle 由 50（5.0 度）改为 150（15.0 度）。
+- 回拉次数 Mot1PosCorrMaxTimes / Mot3PosCorrMaxTimes 由 2 改为 4，配合“每次只走残差一半”的策略逐步逼近；残差小于死区（1.0 度）会提前结束，不会多动作。
+- 新增“回拉无效保护”：记录上一次回拉后的残差，若这次残差没有变小（机构卡住）或反而变大（拉过头），直接结束本轮回拉，避免越拉越偏。对应新增 MotXPosCorrLastResidual 变量与 wasCorr 判断。
+- 用户自行把 Mot1 回拉力度调成 Mot1PosCorrMinimumPwm 800 / Mot1PosCorrMaximumPwm 1500，工作区里保留该设置不变。
+- 现场调参：Mot3 偏差超过 25 度就继续加大 Mot3PosCorrMaxAngle；回拉完全不动就把 Mot3PosCorrMinimumPwm/MaximumPwm 往上抬。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次参数与保护逻辑改动。

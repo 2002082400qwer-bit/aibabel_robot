@@ -138,9 +138,9 @@ u8 Mot3ReadDownHallState(void)
 /* 末端回拉补偿：停稳后按残差再低速往回走一小段，用来抵消制动过冲留下的固定偏差。 */
 #define Mot3PosCorrEnable        1    // 1：启用末端回拉补偿；0：关闭，方便做对比试验。
 #define Mot3PosCorrDeadbandAngle 10   // 回拉死区，单位0.1度(即1.0度)；残差小于这个值就不再回拉。
-#define Mot3PosCorrMaxAngle      60   // 单次回拉允许的最大残差，单位0.1度；超过就判为异常不回拉。
+#define Mot3PosCorrMaxAngle      250  // 单次回拉允许的最大残差，单位0.1度(即25.0度)；超过判为异常不回拉。
 #define Mot3PosCorrVelocity      50   // 回拉运动的目标速度，取小值让末端走得更慢。
-#define Mot3PosCorrMaxTimes      2    // 一次目标最多回拉几次，防止来回找位置。
+#define Mot3PosCorrMaxTimes      4    // 一次目标最多回拉几次，残差大时逐步逼近，不再一次拉过。
 #define Mot3PosCorrTimeOver      2000 // 单次回拉最长持续时间，单位毫秒；超时按普通制动结束。
 #define Mot3PosCorrRatioPercent  50   // 每次只回拉残差的百分比，留出停机制动的过冲余量。
 #define Mot3PosCorrMinimumPwm    1300 // 回拉运动专用PWM下限，比正常运动小很多。
@@ -152,6 +152,7 @@ static int32_t Mot3PidOutputScaled = 0;
 /* 末端回拉补偿的运行状态和函数声明 */
 static u8 Mot3PosCorrTimes = 0;  // 本次目标已经回拉的次数。
 static u8 Mot3PosCorrBusy = 0;   // 1：当前这次运动就是回拉补偿运动。
+static u16 Mot3PosCorrLastResidual = 0; // 上一次回拉后的残差，用来判断这次回拉有没有效果。
 static u16 Mot3AngleToPulse(u16 Angle);         // 把0.1度角度偏差换算成脉冲数。
 static void Mot3PositionCorrectionHandle(void); // 停稳后按残差判断是否还要回拉。
 void Mot3MoveBrake(void);                       // 回拉超时需要制动，函数定义在后面先声明。
@@ -700,7 +701,9 @@ static void Mot3PositionCorrectionHandle(void)
 	u16 residual;  // 目标位置与当前记录位置之间差的脉冲数
 	u16 stepPulse; // 本次实际回拉的脉冲数，按残差比例缩小。
 	u16 targetPos; // 回拉前保存的真正目标位置，避免被中间目标覆盖。
+	u8  wasCorr;   // 上一次停稳是否来自回拉运动，用来判断回拉有没有效果。
 
+	wasCorr = Mot3PosCorrBusy;
 	brakeType = Mot3.BrakeType;
 	Mot3PosCorrBusy = 0;
 
@@ -721,6 +724,9 @@ static void Mot3PositionCorrectionHandle(void)
 
 	if( residual < deadband ) return; /* 已经落在允许偏差内，不再动作。 */
 	if( residual > maxCorr ) return;  /* 偏差过大不像是停机制动过冲，不做自动回拉。 */
+	/* 上一次回拉没让残差变小(卡住或者拉过头)，直接结束回拉，避免越拉越偏。 */
+	if( (wasCorr != 0) && (residual >= Mot3PosCorrLastResidual) ) return;
+	Mot3PosCorrLastResidual = residual;
 
 	targetPos = Mot3.TarPosition;
 	/* 只回拉残差的一部分：停机制动还会继续冲一点，按比例回拉才不会再冲过目标。 */
