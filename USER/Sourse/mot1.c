@@ -262,8 +262,8 @@ void Mot1SetTargetPosition( u16 num )
 	Mot1.TarPosition = num;
 }	
 /**
- * 函数作用：每50毫秒更新电机1位置、速度与PWM；长行程末段渐进降速，
- *          复位回中点时保持中段驱动力，并打印右转霍尔原始值供限位分析。
+ * 函数作用：每50毫秒更新电机1位置、速度与PWM；复位回中时按行程长度
+ *          设置末段降速窗口，并打印右转霍尔原始值供限位分析。
  */
 void Mot1VelocityControl(void)
 {
@@ -274,6 +274,7 @@ void Mot1VelocityControl(void)
     u32 sum; // 根据本次编码脉冲换算的位置中间量。
     u32 encode_count; // 本控制周期测得的编码脉冲换算量。
     u32 remainingPulseNum; // 距本次目标剩余的编码脉冲数。
+    u32 approachPulseNum; // 本次运动末段提前降速的脉冲窗口。
 
     if( Mot1.PidEn == 0 ) return;
     if( Mot1.PidTimer < C_PID_RATE ) return;
@@ -299,14 +300,22 @@ void Mot1VelocityControl(void)
     if( encode_count != 0 ) Mot1.CurVelocity = (u32)(encode_count / Mot1.PulseNumPerAngle);
     else Mot1.CurVelocity = 0;
 
+    // 回中行程不足两个固定窗口时，提前在半程处开始降速。
+    approachPulseNum = Mot1PidApproachPulseNum;
+    if( (Mot1.Reset != 0) && (Mot1.Step == 3) &&
+        (Mot1.TarPulseNum < 2 * approachPulseNum) ) {
+        approachPulseNum = Mot1.TarPulseNum / 2;
+    }
+
     if( Mot1.TarPulseNum > Mot1.PulseNum ) {
         remainingPulseNum = Mot1.TarPulseNum - Mot1.PulseNum;
         PidTargetVelocity = Mot1.TarVelocity;
         if( ((Mot1.Reset == 0) || (Mot1.Step == 3)) &&
-            (Mot1.TarPulseNum >= 2 * Mot1PidApproachPulseNum) &&
-            (remainingPulseNum < Mot1PidApproachPulseNum) &&
+            (approachPulseNum != 0) &&
+            (Mot1.TarPulseNum >= 2 * approachPulseNum) &&
+            (remainingPulseNum < approachPulseNum) &&
             (PidTargetVelocity > Mot1PidApproachMinimumVelocity) ) {
-            PidTargetVelocity = (u16)(((u32)Mot1.TarVelocity * remainingPulseNum) / Mot1PidApproachPulseNum);
+            PidTargetVelocity = (u16)(((u32)Mot1.TarVelocity * remainingPulseNum) / approachPulseNum);
             if( PidTargetVelocity < Mot1PidApproachMinimumVelocity )
                 PidTargetVelocity = Mot1PidApproachMinimumVelocity;
         }
@@ -316,14 +325,15 @@ void Mot1VelocityControl(void)
         Pwm = Mot1VelocityFeedbackControl(PidTargetVelocity, Mot1.CurVelocity);
         if( (PidTargetVelocity != 0) && ((Mot1.Reset == 0) || (Mot1.Step == 3)) ) {
             MinimumPwm = Mot1PidHostMinimumPwm;
-            if( (Mot1.TarPulseNum >= 2 * Mot1PidApproachPulseNum) &&
-                (remainingPulseNum < Mot1PidApproachPulseNum) ) {
+            if( (approachPulseNum != 0) &&
+                (Mot1.TarPulseNum >= 2 * approachPulseNum) &&
+                (remainingPulseNum < approachPulseNum) ) {
                 MinimumPwm = Mot1PidApproachMinimumPwm +
                     (Mot1PidHostMinimumPwm - Mot1PidApproachMinimumPwm) *
-                    remainingPulseNum / Mot1PidApproachPulseNum;
+                    remainingPulseNum / approachPulseNum;
                 MaximumPwm = Mot1PidApproachMaximumPwm +
                     (c_MaxPwmDuty - Mot1PidApproachMaximumPwm) *
-                    remainingPulseNum / Mot1PidApproachPulseNum;
+                    remainingPulseNum / approachPulseNum;
                 if( Pwm > MaximumPwm ) Pwm = MaximumPwm;
             }
             if( Pwm < MinimumPwm ) Pwm = MinimumPwm;
