@@ -757,7 +757,6 @@ static void Mot1PositionCorrectionHandle(void)
 	Mot1PosCorrLastResidual = residual;
 
 	targetPos = Mot1.TarPosition;
-	/* 只回拉残差的一部分：停机制动还会继续冲一点，按比例回拉才不会再冲过目标。 */
 	stepPulse = (u16)(((u32)residual * Mot1PosCorrRatioPercent) / 100);
 	if( stepPulse == 0 ) stepPulse = 1;
 	Mot1PosCorrTimes++;
