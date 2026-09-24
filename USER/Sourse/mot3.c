@@ -135,10 +135,23 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3PidSlowDownPulseNum 50
 // 减速阶段目标速度下限，单位同TarVelocity和CurVelocity。
 #define Mot3PidMinimumTargetVelocity 50
+/* 末端回拉补偿：停稳后按残差再低速往回走一小段，用来抵消制动过冲留下的固定偏差。 */
+#define Mot3PosCorrEnable        1    // 1：启用末端回拉补偿；0：关闭，方便做对比试验。
+#define Mot3PosCorrDeadbandAngle 10   // 回拉死区，单位0.1度(即1.0度)；残差小于这个值就不再回拉。
+#define Mot3PosCorrMaxAngle      60   // 单次回拉允许的最大残差，单位0.1度；超过就判为异常不回拉。
+#define Mot3PosCorrVelocity      50   // 回拉运动的目标速度，取小值让末端走得更慢。
+#define Mot3PosCorrMaxTimes      2    // 一次目标最多回拉几次，防止来回找位置。
+#define Mot3PosCorrTimeOver      2000 // 单次回拉最长持续时间，单位毫秒；超时按普通制动结束。
 
 static int32_t Mot3PidPreviousError = 0;
 static int32_t Mot3PidPreviousPreviousError = 0;
 static int32_t Mot3PidOutputScaled = 0;
+/* 末端回拉补偿的运行状态和函数声明 */
+static u8 Mot3PosCorrTimes = 0;  // 本次目标已经回拉的次数。
+static u8 Mot3PosCorrBusy = 0;   // 1：当前这次运动就是回拉补偿运动。
+static u16 Mot3AngleToPulse(u16 Angle);         // 把0.1度角度偏差换算成脉冲数。
+static void Mot3PositionCorrectionHandle(void); // 停稳后按残差判断是否还要回拉。
+void Mot3MoveBrake(void);                       // 回拉超时需要制动，函数定义在后面先声明。
 
 /**
  * 函数作用：清除电机3速度PID的历史误差，并设置本次启动占空比。
@@ -269,6 +282,12 @@ void Mot3VelocityControl(void)
 	u32 sum, encode_count, remainingPulseNum;
 
 	if( Mot3.PidEn == 0 ) return;
+	/* 回拉补偿超时保护：机构卡住或走不动时按普通制动收尾，避免一直停在半路。 */
+	if( (Mot3PosCorrBusy != 0) && (Mot3.PidTimerB > Mot3PosCorrTimeOver) ) {
+		Mot3PosCorrTimes = Mot3PosCorrMaxTimes;
+		Mot3MoveBrake();
+		return;
+	}
 	if( Mot3.PidTimer < C_PID_RATE ) return;
 
 	Mot3.PidTimer = Mot3.PidTimer - C_PID_RATE;
@@ -302,6 +321,10 @@ void Mot3VelocityControl(void)
 		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
 		/* 目标速度非零时，复位使用原下限，上位机运动全程使用运行下限。 */
 		if( (Mot3.Reset != 0) && (PidTargetVelocity != 0) &&
+			(Pwm < Mot3PidMinimumPwm) ) {
+			Pwm = Mot3PidMinimumPwm;
+		}
+		else if( (Mot3PosCorrBusy != 0) && (PidTargetVelocity != 0) &&
 			(Pwm < Mot3PidMinimumPwm) ) {
 			Pwm = Mot3PidMinimumPwm;
 		}
@@ -357,6 +380,8 @@ void Mot3MoveBrake(void)
 void Mot3MoveForward( u16 TarPosition, u16 Velocity )
 {
 		printf("M3 forward\n");
+	/* 普通运动开始时清空回拉计数；回拉运动本身保留计数，保证次数上限有效。 */
+	if( Mot3PosCorrBusy == 0 ) Mot3PosCorrTimes = 0;
 		//Mot3DirPin = PositiveMove;
 	  GPIO_SetBits( Mot3DirIO, Mot3DirPin );
 		 
@@ -382,6 +407,8 @@ void Mot3MoveForward( u16 TarPosition, u16 Velocity )
 void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 {
 		printf("M3 backward\n");
+		/* 普通运动开始时清空回拉计数；回拉运动本身保留计数，保证次数上限有效。 */
+		if( Mot3PosCorrBusy == 0 ) Mot3PosCorrTimes = 0;
 		//Mot3DirPin =  NegativeMove;
 		
 		GPIO_ResetBits( Mot3DirIO, Mot3DirPin );
@@ -483,6 +510,8 @@ void Mot3ActionHandle(void)
 				else Mot3.CurAngle = 0;
 				Mot3.CurVelocity = 0;
 				Mot3.Action = motor_stop;				
+				/* 停稳后按“目标位置-当前记录位置”的残差做一次低速回拉补偿。 */
+				Mot3PositionCorrectionHandle();
 		}		
 	}		
 }	
@@ -641,5 +670,61 @@ void Mot3MoveService(void)
 		}	
 }         
 
+/**
+ * 函数作用：把0.1度单位的角度偏差换算成脉冲数，供回拉死区判断使用。
+ * Angle：角度偏差，单位0.1度。
+ * 返回值：换算出的脉冲数；行程还没标定时返回0。
+ */
+static u16 Mot3AngleToPulse(u16 Angle)
+{
+	u32 sum; // 角度乘标定行程换算的中间量
 
+	if( Mot3.MaxPulseNum == 0 ) return 0;
+	sum = (u32)Angle * Mot3.MaxPulseNum;
+	return (u16)(sum / (c_MaxAngle * 10));
+}
 
+/**
+ * 函数作用：一次运动停稳后，用“目标位置-当前记录位置”的残差判断要不要低速反向回拉，
+ *           只对脉冲制动生效；霍尔限位由开关定位，不做回拉。
+ */
+static void Mot3PositionCorrectionHandle(void)
+{
+	u8 brakeType;  // 本次停稳前的制动类型，用来区分脉冲制动和霍尔制动
+	u16 deadband;  // 允许的残余脉冲死区，小于它就认为已经到位
+	u16 maxCorr;   // 单次回拉允许的最大脉冲数，超过就判为异常
+	u16 residual;  // 目标位置与当前记录位置之间差的脉冲数
+
+	brakeType = Mot3.BrakeType;
+	Mot3PosCorrBusy = 0;
+
+	if( Mot3PosCorrEnable == 0 ) return;
+	if( (brakeType != pulse_forward_brake) && (brakeType != pulse_backward_brake) ) return;
+	/* 复位找行程阶段不参与回拉，只处理正常运行和复位回中(Step3)。 */
+	if( (Mot3.Reset != 0) && (Mot3.Step != 3) ) return;
+	if( Mot3.MaxPulseNum == 0 ) return;
+	if( Mot3PosCorrTimes >= Mot3PosCorrMaxTimes ) return;
+
+	deadband = Mot3AngleToPulse(Mot3PosCorrDeadbandAngle);
+	if( deadband < 2 ) deadband = 2; /* 行程标定值小时不要按1个脉冲判断，避免来回抖。 */
+	maxCorr = Mot3AngleToPulse(Mot3PosCorrMaxAngle);
+	if( maxCorr < deadband ) maxCorr = deadband;
+
+	if( Mot3.CurPosition > Mot3.TarPosition ) residual = Mot3.CurPosition - Mot3.TarPosition;
+	else residual = Mot3.TarPosition - Mot3.CurPosition;
+
+	if( residual < deadband ) return; /* 已经落在允许偏差内，不再动作。 */
+	if( residual > maxCorr ) return;  /* 偏差过大不像是停机制动过冲，不做自动回拉。 */
+
+	Mot3PosCorrTimes++;
+	Mot3PosCorrBusy = 1;
+	printf("m3 poscorr residual=%d\n", residual);
+	if( Mot3.CurPosition > Mot3.TarPosition ) {
+		/* 记录位置比目标大，朝位置减小的方向(Backward)低速回拉。 */
+		Mot3MoveBackward( Mot3.TarPosition, Mot3PosCorrVelocity );
+	}
+	else {
+		/* 记录位置比目标小，朝位置增大的方向(Forward)低速回拉。 */
+		Mot3MoveForward( Mot3.TarPosition, Mot3PosCorrVelocity );
+	}
+}
