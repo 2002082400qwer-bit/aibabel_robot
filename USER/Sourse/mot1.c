@@ -9,7 +9,6 @@
 *******************************************************************************/
 #define c_MaxAngle 	180									//最大角度180度
 #define c_PulseScaleFactor 10							//10倍
-#define c_AngleScaleFactor 10							//10倍
 #define c_RadianScaleFactor 10							//10倍
 #define c_DefaultTotalPulseNum	3600					//总的脉冲数
 #define c_DefaultPulseNumPerAngle 20*c_PulseScaleFactor	//每度对应的脉冲数
@@ -37,7 +36,6 @@ void Mot1Init(void)
 	Mot1.PulseNum = 0;
 	Mot1.PulseNumB = 0;
 	Mot1.BrakeType = 0;
-	Mot1.ErrPulseNum = 0;
 	Mot1.BrakeType = 0;
 	Mot1.TarPulseNum = 0;
 	Mot1.MaxPulseNum = c_DefaultTotalPulseNum;
@@ -47,7 +45,6 @@ void Mot1Init(void)
 	Mot1.TarPosition = 0;
 	Mot1.CurPosition = 0;	
 	Mot1.CurAngle = 0;
-	Mot1.TarAngle = 0;
 	Mot1.Hall1Sta = 0;
 	Mot1.Hall1Deb = 0;
 	Mot1.Hall2Sta = 0;
@@ -122,8 +119,7 @@ u8 Mot1ReadRightHallState(void)
 /* 增量式速度PID，增益按百分之一缩放，Ki按每个50ms控制周期累加。 */
 #define Mot1PidScale          100
 #define Mot1VelocityKp        250 // 速度误差变化时的比例响应系数。
-#define Mot1VelocityKi        4 // 上位机运行时持续速度误差的积分系数。
-#define Mot1VelocityResetKi   2 // 复位时持续速度误差的积分系数。
+#define Mot1VelocityKi        4 // 运行和复位共用的持续速度误差积分系数。
 #define Mot1VelocityKd        50
 #define Mot1PidStartDuty      1500
 #define Mot1PidCruiseDuty     2100
@@ -187,9 +183,9 @@ static u16 Mot1VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 	Error = (int32_t)TargetVelocity - (int32_t)CurrentVelocity;
 	DeltaError = Error - Mot1PidPreviousError;
 	SecondDifference = Error - 2 * Mot1PidPreviousError + Mot1PidPreviousPreviousError;
-	/* 复位沿用较小积分系数，正常运行使用试调积分系数。 */
+	/* 运行和复位共用同一个积分系数，不再区分复位/运行两套Ki。 */
 	DeltaOutputScaled = Mot1VelocityKp * DeltaError +
-		((Mot1.Reset != 0) ? Mot1VelocityResetKi : Mot1VelocityKi) * Error +
+		Mot1VelocityKi * Error +
 		Mot1VelocityKd * SecondDifference;
 	OutputLimitScaled = (int32_t)c_MaxPwmDuty * Mot1PidScale;
 	Mot1PidOutputScaled += DeltaOutputScaled;
@@ -273,10 +269,6 @@ void Mot1DisablePidControl(void)
 void Mot1SetCurrentPosition( u16 num )
 {
 	Mot1.CurPosition = num;
-}	
-void Mot1SetTargetPosition( u16 num )
-{
-	Mot1.TarPosition = num;
 }	
 /**
  * 函数作用：每50毫秒更新电机1位置、速度与PWM；复位回中时按行程长度
@@ -519,8 +511,6 @@ void Mot1ActionHandle(void)
 				printf("m1 stop\n");
 				printf("M1.PulseNum =%d\n ",Mot1.PulseNum );
 				printf("M1.TarPulseNum =%d\n ",Mot1.TarPulseNum );
-				//Mot1.ErrPulseNum = Mot1.PulseNum - Mot1.TarPulseNum;
-				//printf("Mot1.ErrPulseNum = %d\n",Mot1.ErrPulseNum);
 
 				if( Mot1.BrakeType == pulse_forward_brake ) {
 					Mot1.CurPosition += Mot1.PulseNum;

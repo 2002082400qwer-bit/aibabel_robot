@@ -60,3 +60,12 @@
 - 回拉次数按本次目标累计，新的普通运动开始时清零；若现场出现来回找位置，可把 Mot1PosCorrMaxTimes/Mot3PosCorrMaxTimes 改成 1，或把 Mot1PosCorrEnable/Mot3PosCorrEnable 改成 0 做对照试验。
 - 需要注意：回拉依赖“编码器脉冲能代表机构实际位置”。如果偏差来自齿轮间隙、霍尔区不计数或机械打滑，回拉会把账面误差补上而机械位置未必同步改善；Mot3 之前出现的十几度偏差超过本次上限，不会触发回拉，仍需单独查计数或标定问题。
 - 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次补偿代码与记录，工作区里用户未提交的 PID 调参保持不变。
+
+## 2026-09-24 清理死代码并合并复位/运行积分系数
+
+- 用户指出按当前方案没必要再保留复位/运行两套积分系数，确认无用的宏和函数一并清理。
+- 合并 Ki：删除 Mot1VelocityResetKi / Mot3VelocityResetKi，积分项统一使用 Mot1VelocityKi / Mot3VelocityKi。工作区实际取值为 Mot1 Ki=2、Mot3 Ki=4，因此复位段等效值由 Mot1 的 4 变为 2、Mot3 的 2 变为 4；若复位段表现变差，只改这一个宏即可。
+- 删除确认无引用的死代码：mot1.c/mot3.c 的 c_AngleScaleFactor（mot3.c 另有 c_SpeedScaleFactor）、Mot1SetTargetPosition / Mot3SetTargetPosition 函数、Mot1ActionHandle / Mot3ActionHandle 里注释掉的 ErrPulseNum 调试行。
+- 删除只赋初值、从未使用的结构体成员：Motor1St / Motor3St 的 ErrPulseNum 与 TarAngle，Move1St / Move3St 的 SpeedB。注意 mot1.h / mot3.h 被 .git/info/exclude 排除，不在本仓库版本管理内，这两处改动只保留在磁盘上。
+- 保留仍在使用的项：Kp/Kd、Mot1PidStartDuty、Mot1PidCruiseDuty、最低 PWM、末段渐降窗口、MotXPosCorr 回拉参数；保留 motor.h 中未被引用的 C_MinimumTarPulseNum、Mot1MaxAngle、Mot2MaxDistance、Mot3MaxAngle 以及限位开关引脚宏，后一组属于硬件接线记录，需要再删可以单独处理。
+- 本次只做删除与合并，未引入新逻辑；仍依赖“脉冲到位关 PWM + 停稳后残差回拉”的现有方案。未编译（本机 Keil 命令行受 license 限制）、未上板验证。提交只含本次清理，工作区里未提交的 PID 调参保持不变。
