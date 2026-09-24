@@ -142,6 +142,9 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3PosCorrVelocity      50   // 回拉运动的目标速度，取小值让末端走得更慢。
 #define Mot3PosCorrMaxTimes      2    // 一次目标最多回拉几次，防止来回找位置。
 #define Mot3PosCorrTimeOver      2000 // 单次回拉最长持续时间，单位毫秒；超时按普通制动结束。
+#define Mot3PosCorrRatioPercent  50   // 每次只回拉残差的百分比，留出停机制动的过冲余量。
+#define Mot3PosCorrMinimumPwm    1300 // 回拉运动专用PWM下限，比正常运动小很多。
+#define Mot3PosCorrMaximumPwm    1600 // 回拉运动专用PWM上限，限制回拉力量避免再冲过目标。
 
 static int32_t Mot3PidPreviousError = 0;
 static int32_t Mot3PidPreviousPreviousError = 0;
@@ -320,11 +323,12 @@ void Mot3VelocityControl(void)
 		}
 		Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
 		/* 目标速度非零时，复位使用原下限，上位机运动全程使用运行下限。 */
-		if( (Mot3.Reset != 0) && (PidTargetVelocity != 0) &&
-			(Pwm < Mot3PidMinimumPwm) ) {
-			Pwm = Mot3PidMinimumPwm;
+		if( (Mot3PosCorrBusy != 0) && (PidTargetVelocity != 0) ) {
+			/* 回拉补偿单独用小力窗口，力量更小，避免回拉时又冲过目标。 */
+			if( Pwm > Mot3PosCorrMaximumPwm ) Pwm = Mot3PosCorrMaximumPwm;
+			if( Pwm < Mot3PosCorrMinimumPwm ) Pwm = Mot3PosCorrMinimumPwm;
 		}
-		else if( (Mot3PosCorrBusy != 0) && (PidTargetVelocity != 0) &&
+		else if( (Mot3.Reset != 0) && (PidTargetVelocity != 0) &&
 			(Pwm < Mot3PidMinimumPwm) ) {
 			Pwm = Mot3PidMinimumPwm;
 		}
@@ -694,6 +698,8 @@ static void Mot3PositionCorrectionHandle(void)
 	u16 deadband;  // 允许的残余脉冲死区，小于它就认为已经到位
 	u16 maxCorr;   // 单次回拉允许的最大脉冲数，超过就判为异常
 	u16 residual;  // 目标位置与当前记录位置之间差的脉冲数
+	u16 stepPulse; // 本次实际回拉的脉冲数，按残差比例缩小。
+	u16 targetPos; // 回拉前保存的真正目标位置，避免被中间目标覆盖。
 
 	brakeType = Mot3.BrakeType;
 	Mot3PosCorrBusy = 0;
@@ -716,15 +722,21 @@ static void Mot3PositionCorrectionHandle(void)
 	if( residual < deadband ) return; /* 已经落在允许偏差内，不再动作。 */
 	if( residual > maxCorr ) return;  /* 偏差过大不像是停机制动过冲，不做自动回拉。 */
 
+	targetPos = Mot3.TarPosition;
+	/* 只回拉残差的一部分：停机制动还会继续冲一点，按比例回拉才不会再冲过目标。 */
+	stepPulse = (u16)(((u32)residual * Mot3PosCorrRatioPercent) / 100);
+	if( stepPulse == 0 ) stepPulse = 1;
 	Mot3PosCorrTimes++;
 	Mot3PosCorrBusy = 1;
-	printf("m3 poscorr residual=%d\n", residual);
-	if( Mot3.CurPosition > Mot3.TarPosition ) {
-		/* 记录位置比目标大，朝位置减小的方向(Backward)低速回拉。 */
-		Mot3MoveBackward( Mot3.TarPosition, Mot3PosCorrVelocity );
+	printf("m3 poscorr residual=%d step=%d\n", residual, stepPulse);
+	if( Mot3.CurPosition > targetPos ) {
+		/* 记录位置比目标大，朝位置减小的方向(Backward)小幅回拉。 */
+		Mot3MoveBackward( Mot3.CurPosition - stepPulse, Mot3PosCorrVelocity );
 	}
 	else {
-		/* 记录位置比目标小，朝位置增大的方向(Forward)低速回拉。 */
-		Mot3MoveForward( Mot3.TarPosition, Mot3PosCorrVelocity );
+		/* 记录位置比目标小，朝位置增大的方向(Forward)小幅回拉。 */
+		Mot3MoveForward( Mot3.CurPosition + stepPulse, Mot3PosCorrVelocity );
 	}
+	/* Move函数会把TarPosition改成中间目标，这里改回真正的目标位置，供下一次残差判断。 */
+	Mot3.TarPosition = targetPos;
 }

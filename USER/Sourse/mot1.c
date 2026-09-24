@@ -140,6 +140,9 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1PosCorrVelocity      50   // 回拉运动的目标速度，取小值让末端走得更慢。
 #define Mot1PosCorrMaxTimes      2    // 一次目标最多回拉几次，防止来回找位置。
 #define Mot1PosCorrTimeOver      2000 // 单次回拉最长持续时间，单位毫秒；超时按普通制动结束。
+#define Mot1PosCorrRatioPercent  50   // 每次只回拉残差的百分比，留出停机制动的过冲余量。
+#define Mot1PosCorrMinimumPwm    1500 // 回拉运动专用PWM下限，比正常运动小很多。
+#define Mot1PosCorrMaximumPwm    2000 // 回拉运动专用PWM上限，限制回拉力量避免再冲过目标。
 #define Mot1PidResetApproachMinimumPwm 1500 // 复位回中末段的PWM下限，参考旧版末段驱动。
 #define Mot1PidResetApproachMaximumPwm 1800 // 复位回中末段的PWM上限，限制冲过中点。
 
@@ -327,10 +330,6 @@ void Mot1VelocityControl(void)
 
     // 复位回中先保持驱动力穿过约三分之一行程的重载区，再在余下三分之一回中行程降速。
     approachPulseNum = Mot1PidApproachPulseNum;
-    /* 回拉补偿行程很短，同样从半程开始收PWM上下限，走得慢一些，减小二次过冲。 */
-    if( (Mot1PosCorrBusy != 0) && (Mot1.TarPulseNum < 2 * approachPulseNum) ) {
-        approachPulseNum = Mot1.TarPulseNum / 2;
-    }
     approachMinimumPwm = Mot1PidApproachMinimumPwm;
     approachMaximumPwm = Mot1PidApproachMaximumPwm;
     if( (Mot1.Reset != 0) && (Mot1.Step == 3) ) {
@@ -369,6 +368,11 @@ void Mot1VelocityControl(void)
                 if( Pwm > MaximumPwm ) Pwm = MaximumPwm;
             }
             if( Pwm < MinimumPwm ) Pwm = MinimumPwm;
+            /* 回拉补偿单独用小力窗口，力量更小，避免回拉时又冲过目标。 */
+            if( Mot1PosCorrBusy != 0 ) {
+                if( Pwm > Mot1PosCorrMaximumPwm ) Pwm = Mot1PosCorrMaximumPwm;
+                if( Pwm < Mot1PosCorrMinimumPwm ) Pwm = Mot1PosCorrMinimumPwm;
+            }
         }
     }
     else {
@@ -722,6 +726,8 @@ static void Mot1PositionCorrectionHandle(void)
 	u16 deadband;  // 允许的残余脉冲死区，小于它就认为已经到位
 	u16 maxCorr;   // 单次回拉允许的最大脉冲数，超过就判为异常
 	u16 residual;  // 目标位置与当前记录位置之间差的脉冲数
+	u16 stepPulse; // 本次实际回拉的脉冲数，按残差比例缩小。
+	u16 targetPos; // 回拉前保存的真正目标位置，避免被中间目标覆盖。
 
 	brakeType = Mot1.BrakeType;
 	Mot1PosCorrBusy = 0;
@@ -744,15 +750,21 @@ static void Mot1PositionCorrectionHandle(void)
 	if( residual < deadband ) return; /* 已经落在允许偏差内，不再动作。 */
 	if( residual > maxCorr ) return;  /* 偏差过大不像是停机制动过冲，不做自动回拉。 */
 
+	targetPos = Mot1.TarPosition;
+	/* 只回拉残差的一部分：停机制动还会继续冲一点，按比例回拉才不会再冲过目标。 */
+	stepPulse = (u16)(((u32)residual * Mot1PosCorrRatioPercent) / 100);
+	if( stepPulse == 0 ) stepPulse = 1;
 	Mot1PosCorrTimes++;
 	Mot1PosCorrBusy = 1;
-	printf("m1 poscorr residual=%d\n", residual);
-	if( Mot1.CurPosition > Mot1.TarPosition ) {
-		/* 记录位置比目标大，朝位置减小的方向(Backward)低速回拉。 */
-		Mot1MoveBackward( Mot1.TarPosition, Mot1PosCorrVelocity );
+	printf("m1 poscorr residual=%d step=%d\n", residual, stepPulse);
+	if( Mot1.CurPosition > targetPos ) {
+		/* 记录位置比目标大，朝位置减小的方向(Backward)小幅回拉。 */
+		Mot1MoveBackward( Mot1.CurPosition - stepPulse, Mot1PosCorrVelocity );
 	}
 	else {
-		/* 记录位置比目标小，朝位置增大的方向(Forward)低速回拉。 */
-		Mot1MoveForward( Mot1.TarPosition, Mot1PosCorrVelocity );
+		/* 记录位置比目标小，朝位置增大的方向(Forward)小幅回拉。 */
+		Mot1MoveForward( Mot1.CurPosition + stepPulse, Mot1PosCorrVelocity );
 	}
+	/* Move函数会把TarPosition改成中间目标，这里改回真正的目标位置，供下一次残差判断。 */
+	Mot1.TarPosition = targetPos;
 }

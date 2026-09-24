@@ -88,3 +88,15 @@
 - 提交内容按 HEAD 基线重建，等价于恢复成清理前（提交 a8450ba）的源文件内容；工作区里用户的 PID 调参（Kp/Ki/最低 PWM/复位速度等）仍保持未提交状态，与之前一致。
 - 顺带核对：两工程当前只剩 robot.uvoptx、motor.h、mot1.c、mot2.c、mot3.c、motor.c 六个文件不同。
 - 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证。
+
+## 2026-09-24 末端回拉补偿力量改小
+
+- 用户实机反馈：回拉补偿给的力太大，拉回之后反而比原来偏得更多。
+- 原因判断：原来的回拉运动沿用正常运行的最低 PWM（Mot1 用 2500、Mot3 用复位级 1500），驱动力和造成原始过冲时差不多，所以回拉自己又会带出一次制动过冲，越拉越偏。
+- 本次修改：给回拉运动单独加“小力窗口”，并按比例回拉。
+- 每次只回拉残差的一部分：Mot1PosCorrRatioPercent / Mot3PosCorrRatioPercent = 50，即一次只走残差的一半，留出停机制动继续冲的余量；配合原有的最多 2 次判断，逐步逼近目标。
+- Mot1 回拉 PWM 限制为 Mot1PosCorrMinimumPwm 1500 ~ Mot1PosCorrMaximumPwm 2000（原来不低于 2500）。
+- Mot3 回拉 PWM 限制为 Mot3PosCorrMinimumPwm 1300 ~ Mot3PosCorrMaximumPwm 1600（原来不低于 1500 且没有上限）。
+- 回拉改成走中间目标（当前位置 ± 一半残差），走完后把 TarPosition 改回真正的目标位置，保证下一次残差判断仍以真正目标为准；死区、次数上限、2000 ms 超时逻辑不变。Mot1 原来的“回拉时按半程收减速窗口”的临时分支已删除，避免和新的小力窗口叠加。
+- 现场调参：回拉完全不动说明力度不够，把 MotXPosCorrMinimumPwm/MaximumPwm 调大；仍然冲过目标就把 MotXPosCorrRatioPercent 调小（如 30），或把 MaximumPwm 再降。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次回拉参数与算法改动，工作区其余调参不变。
