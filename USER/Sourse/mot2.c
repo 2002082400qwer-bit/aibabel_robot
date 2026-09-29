@@ -124,7 +124,8 @@ u8 Mot2ReadDownHallState(void)
 #define Mot2VelocityKp        100
 #define Mot2VelocityKi        2
 #define Mot2VelocityKd        50
-#define Mot2PidStartDuty      2400
+#define Mot2PidStartDuty      2500 // MOT2启动时的PID初始PWM值。
+#define Mot2PidMinimumDuty    2500 // MOT2运动时的PID最低PWM值，停止时仍输出0。
 
 static int32_t Mot2PidPreviousError = 0;
 static int32_t Mot2PidPreviousPreviousError = 0;
@@ -280,6 +281,11 @@ void Mot2VelocityControl(void)
 		PidTargetVelocity = Mot2.TarVelocity;
 		if( (remainingPulseNum < 20) && (PidTargetVelocity > 20) ) PidTargetVelocity = 20;
 		Pwm = Mot2VelocityFeedbackControl(PidTargetVelocity, Mot2.CurVelocity);
+		if( (PidTargetVelocity != 0) &&
+			(Mot2PidOutputScaled < (int32_t)Mot2PidMinimumDuty * Mot2PidScale) ) {
+			Mot2PidOutputScaled = (int32_t)Mot2PidMinimumDuty * Mot2PidScale; // 同步PID内部输出，避免下一周期掉回最低值以下。
+			Pwm = Mot2PidMinimumDuty;
+		}
 	}
 	else {
 		Pwm = Mot2VelocityFeedbackControl(0, Mot2.CurVelocity);
