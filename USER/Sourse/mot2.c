@@ -218,7 +218,7 @@ void Mot2ClearEncode(void)
 	Mot2.PidTimerB = 0;
 }	
 /**
- * 函数作用：启动电机2速度闭环前清零测速脉冲并重置PID状态。
+ * 函数作用：启动电机2运动前清零测速脉冲、重置PID状态并立即输出满占空比；无传入参数。
  */
 void Mot2EnablePidControl(void)
 {
@@ -226,6 +226,7 @@ void Mot2EnablePidControl(void)
 	Mot2.CurVelocity = 0;
 	Mot2PidReset(Mot2PidStartDuty);
 	Mot2.PidEn = Enable;
+	TIM1_SetDuty_CH1(c_MaxPwmDuty); // 有效运动开始时立即输出满占空比。
 }
 /**
  * 函数作用：关闭电机2速度PID并清零PWM和历史控制状态。
@@ -245,7 +246,7 @@ void Mot2SetTargetPosition( u16 num )
 	Mot2.TarPosition = num;
 }	
 /**
- * 函数作用：按固定周期更新电机2位置、编码器速度和PID PWM输出。
+ * 函数作用：按固定周期更新电机2位置和编码器速度，运动期间固定输出满占空比；无传入参数。
  */
 void Mot2VelocityControl(void)
 {
@@ -290,6 +291,7 @@ void Mot2VelocityControl(void)
 	else {
 		Pwm = Mot2VelocityFeedbackControl(0, Mot2.CurVelocity);
 	}
+	Pwm = (Mot2.TarPulseNum > Mot2.PulseNum) ? c_MaxPwmDuty : 0; // 运动期间满占空比，达到目标后输出零。
 	TIM1_SetDuty_CH1(Pwm);
 #if 1
 	printf("M2.TarVel =%d\n", Mot2.TarVelocity);
