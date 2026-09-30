@@ -246,6 +246,16 @@ void Mot2SetTargetPosition( u16 num )
 	Mot2.TarPosition = num;
 }	
 /**
+ * 函数作用：判断电机2是否处于复位时第一次反向寻下限位；无传入参数。
+ * 返回值：1表示正在首次寻下限位，0表示其他运动。
+ */
+static u8 Mot2IsFirstHomingMove(void)
+{
+	return (Mot2.Reset != 0) && (Mot2.Step == 1) &&
+	       (Mot2.Action == motor_backward);
+}
+
+/**
  * 函数作用：按固定周期更新电机2位置和编码器速度，运动期间固定输出满占空比；无传入参数。
  */
 void Mot2VelocityControl(void)
@@ -291,7 +301,7 @@ void Mot2VelocityControl(void)
 	else {
 		Pwm = Mot2VelocityFeedbackControl(0, Mot2.CurVelocity);
 	}
-	Pwm = (Mot2.TarPulseNum > Mot2.PulseNum) ? c_MaxPwmDuty : 0; // 运动期间满占空比，达到目标后输出零。
+	Pwm = (Mot2IsFirstHomingMove() || (Mot2.TarPulseNum > Mot2.PulseNum)) ? c_MaxPwmDuty : 0; // 首次反向寻限位忽略脉冲上限，其他运动按目标脉冲停机。
 	TIM1_SetDuty_CH1(Pwm);
 #if 1
 	printf("M2.TarVel =%d\n", Mot2.TarVelocity);
@@ -386,6 +396,9 @@ void Mot2MoveBackward( u16 TarPosition, u16 Velocity)
 		Mot2.PidTimerB = 0;
 }
 
+/**
+ * 函数作用：处理电机2运动、脉冲及霍尔刹停，并在停稳后更新位置；无传入参数。
+ */
 void Mot2ActionHandle(void)
 {
 	if( Mot2.Action == motor_forward ) {
@@ -410,7 +423,8 @@ void Mot2ActionHandle(void)
 		
 		Mot2VelocityControl();
 
-		if( Mot2.PulseNum >= Mot2.TarPulseNum )	{
+		// 首次反向寻限位不按6000脉冲刹停，保留下限霍尔和复位超时保护。
+		if( !Mot2IsFirstHomingMove() && (Mot2.PulseNum >= Mot2.TarPulseNum) ) {
 			
 			Mot2.BrakeType = pulse_backward_brake;
 			Mot2DisablePidControl();
