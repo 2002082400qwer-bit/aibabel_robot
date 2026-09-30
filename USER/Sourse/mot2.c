@@ -15,6 +15,7 @@
 #define c_MoveTimeOver 40000					//35s,马达不转无脉冲输出时间
 #define Mot2TriggerAdc1 2300
 #define Mot2TriggerAdc2 2500
+#define c_Mot2UpperHomingPulseLimit 32768 // 上行标定的安全脉冲上限，确保后续两倍回程目标不会溢出u16。
 //-----------------------------------------------------------------
 //	ram 
 //-----------------------------------------------------------------
@@ -176,9 +177,12 @@ static u16 Mot2VelocityFeedbackControl(u16 TargetVelocity, u16 CurrentVelocity)
 	return (u16)(Mot2PidOutputScaled / Mot2PidScale);
 }
 
+/**
+ * 函数作用：采样电机2编码器并累计脉冲；上行标定时将脉冲计数限制在安全上限；无传入参数。
+ */
 void Mot2Encode(void)
 {
-	u8 state;
+	u8 state; // 本次读取的编码器输入电平。
 	state = GPIO_ReadInputDataBit( Mot2PulseIO, Mot2PulsePin ) ;
 	if( state != Mot2.PulseSta ) {
 		Mot2.PulseDebB = 0;
@@ -188,7 +192,12 @@ void Mot2Encode(void)
 			Mot2.PulseSta = state;
       if( state != 0 ) {
 					 if( ( Mot2.Hall1Sta == 0 )&&( Mot2.Hall2Sta == 0 ) ) { 
+							if( (Mot2.Reset != 0) && (Mot2.Step == 2) && (Mot2.Action == motor_forward) ) {
+							if( Mot2.PulseNum < c_Mot2UpperHomingPulseLimit ) Mot2.PulseNum++;
+						}
+						else {
 							Mot2.PulseNum++;
+						}
 							Mot2.PulseNumB++;
 					 } 
         }    
@@ -256,6 +265,16 @@ static u8 Mot2IsFirstHomingMove(void)
 }
 
 /**
+ * 函数作用：判断电机2是否处于复位时首次正向寻上限位；无传入参数。
+ * 返回值：1表示正在寻上限位，0表示其他运动。
+ */
+static u8 Mot2IsUpperHomingMove(void)
+{
+	return (Mot2.Reset != 0) && (Mot2.Step == 2) &&
+	       (Mot2.Action == motor_forward);
+}
+
+/**
  * 函数作用：按固定周期更新电机2位置和编码器速度，运动期间固定输出满占空比；无传入参数。
  */
 void Mot2VelocityControl(void)
@@ -301,7 +320,7 @@ void Mot2VelocityControl(void)
 	else {
 		Pwm = Mot2VelocityFeedbackControl(0, Mot2.CurVelocity);
 	}
-	Pwm = (Mot2IsFirstHomingMove() || (Mot2.TarPulseNum > Mot2.PulseNum)) ? c_MaxPwmDuty : 0; // 首次反向寻限位忽略脉冲上限，其他运动按目标脉冲停机。
+	Pwm = (Mot2IsFirstHomingMove() || Mot2IsUpperHomingMove() || (Mot2.TarPulseNum > Mot2.PulseNum)) ? c_MaxPwmDuty : 0; // 首次寻两端限位忽略脉冲上限，其他运动按目标脉冲停机。
 	TIM1_SetDuty_CH1(Pwm);
 #if 1
 	printf("M2.TarVel =%d\n", Mot2.TarVelocity);
@@ -405,7 +424,8 @@ void Mot2ActionHandle(void)
 		
 		Mot2VelocityControl();
 		
-		if( Mot2.PulseNum >= Mot2.TarPulseNum )	{
+		// 首次正向寻上限位不按20000脉冲刹停，保留上限霍尔和复位超时保护。
+		if( !Mot2IsUpperHomingMove() && (Mot2.PulseNum >= Mot2.TarPulseNum) ) {
 			Mot2.BrakeType = pulse_forward_brake;
 			Mot2DisablePidControl();
 			Mot2.Action = motor_brake;
@@ -539,9 +559,12 @@ void Mot2MoveTask(void)
 		}		
 }	
 
+/**
+ * 函数作用：执行电机2两端霍尔标定，并在上行脉冲超过安全范围时停止标定；无传入参数。
+ */
 void Mot2MoveService(void)
 {
-		u32 total;
+		u32 total; // 根据标定脉冲计算每毫米脉冲数的中间值。
 		
 		Mot2UpHallScan();
 	
@@ -577,7 +600,12 @@ void Mot2MoveService(void)
 							}			
 							break;
 				case 2:
-							if( Mot2ActionState() == motor_stop ){
+							if( Mot2.PulseNum >= c_Mot2UpperHomingPulseLimit ) {
+								Mot2MoveStop();
+								Mot2.Faultflag = MotorFault;
+								Mot2.Step = 4;
+							}
+							else if( Mot2ActionState() == motor_stop ){
 								
 								if( Mot2.PulseNum < C_VerifyMinimumPulseNum ) {
 									Mot2.Faultflag = MotorFault;
