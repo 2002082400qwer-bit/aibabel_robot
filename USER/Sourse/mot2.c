@@ -525,9 +525,12 @@ void Mot2MoveTask(void)
 		}		
 }	
 
+/**
+ * 函数作用：执行电机2两端霍尔标定，只有对应限位确认后才推进标定；无传入参数。
+ */
 void Mot2MoveService(void)
 {
-		u32 total;
+		u32 total; // 根据实测全行程计算每毫米脉冲数的中间值。
 		
 		Mot2UpHallScan();
 	
@@ -550,10 +553,16 @@ void Mot2MoveService(void)
 							break;
 				case 1:
 							if( Mot2ActionState() == motor_stop ){
-								delay_ms(200);
-								Mot2SetCurrentPosition(0);
-								Mot2MoveForward( 20000, 20 ); 
-								Mot2.Step++;
+								if( Mot2.BrakeType != hall_backward_brake ) {
+									Mot2.Faultflag = Hall1Fault;
+									Mot2.Step = 4;
+								}
+								else {
+									delay_ms(200);
+									Mot2SetCurrentPosition(0);
+									Mot2MoveForward( 20000, 20 );
+									Mot2.Step++;
+								}
 							}		
 							else if( Mot2ExcuteTime() > c_MoveTimeOver ){
 									//printf("Mot2 move timer over \n");
@@ -565,7 +574,11 @@ void Mot2MoveService(void)
 				case 2:
 							if( Mot2ActionState() == motor_stop ){
 								
-								if( Mot2.PulseNum < C_VerifyMinimumPulseNum ) {
+								if( Mot2.BrakeType != hall_forward_brake ) {
+									Mot2.Faultflag = Hall2Fault;
+									Mot2.Step = 4;
+								}
+								else if( Mot2.PulseNum < C_VerifyMinimumPulseNum ) {
 									Mot2.Faultflag = MotorFault;
 									Mot2.Step = 4;
 								}
