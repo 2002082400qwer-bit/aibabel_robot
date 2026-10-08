@@ -263,6 +263,7 @@ void Mot1EnablePidControl(void)
 	}
 	else Mot1PidReset(Mot1PidHostMinimumPwm);
 	Mot1.PidEn = Enable;
+    TIM1_SetDuty_CH3(c_MaxPwmDuty); // 测试模式：有效运动启动时立即输出满占空比。
 }
 /**
  * 函数作用：关闭电机1速度PID、清零PWM和历史控制状态，并重新开始停稳计时。
@@ -379,6 +380,7 @@ void Mot1VelocityControl(void)
     else {
         Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
     }
+        Pwm = (Mot1.TarPulseNum > Mot1.PulseNum) ? c_MaxPwmDuty : 0; // 测试模式：运动期间固定满占空比，到达目标脉冲后输出0。
     TIM1_SetDuty_CH3(Pwm);
 #if 1
     printf("M1.TarVel =%d\n", Mot1.TarVelocity);
