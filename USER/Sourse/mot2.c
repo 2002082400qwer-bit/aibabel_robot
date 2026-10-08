@@ -467,13 +467,12 @@ void Mot2ActionHandle(void)
 			Mot2.Action = motor_brake;
 			printf("M2pulsebwbrake\n");
 		}	
+		// 下霍尔已完成消抖，确认触发后立即关闭PWM，避免继续带电顶压下限位。
 		if( Mot2ReadDownHallState() != 0 ){
-			if( Mot2.DelayTimer >= c_1s ) {
-				Mot2.BrakeType = hall_backward_brake;
-				Mot2DisablePidControl();
-				Mot2.Action = motor_brake;
-				printf("M2hallbwbrake\n");
-			}	
+			Mot2.BrakeType = hall_backward_brake;
+			Mot2DisablePidControl();
+			Mot2.Action = motor_brake;
+			printf("M2hallbwbrake\n");
 		} else {
 			Mot2.DelayTimer = 0;
 		}		
