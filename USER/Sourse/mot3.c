@@ -583,10 +583,10 @@ void Mot3MoveTask(void)
 		}		
 }	
 
-/* 函数作用：扫描电机3限位并执行复位、标定及回中流程。 */
+/** 函数作用：首次执行两端标定，历史标定有效时只找基准限位后归位；无传入参数。 */
 void Mot3MoveService(void)
 {
-		u32 total;
+		u32 total; // 实测全行程换算每角度脉冲的中间值。
 		
 		Mot3UpHallScan();
 	
@@ -613,11 +613,24 @@ void Mot3MoveService(void)
 							break;
 				case 1:
 							if( Mot3ActionState() == motor_stop ){
-								delay_ms(500);
-								Mot3SetCurrentPosition(0);
-								Mot3MoveForward( 20000, 50 ); 
-								Mot3.Step++;
-							}		
+								if( Mot3.BrakeType != hall_backward_brake ) {
+									Mot3.Faultflag = Hall1Fault;
+									Mot3.Step = 4;
+								}
+								else {
+									Mot3SetCurrentPosition(0);
+									if( MotorCalibrationLoaded != 0 ) {
+										// 历史标定有效：从零点侧限位（原反向运动对应上霍尔）按保存行程直接回中。
+										Mot3MoveForward( Mot3.MaxPulseNum / 2, 50 );
+										Mot3.Step = 3;
+									}
+									else {
+										delay_ms(500);
+										Mot3MoveForward( 20000, 50 );
+										Mot3.Step++;
+									}
+								}
+							}
 							else if( Mot3ExcuteTime() > c_MoveTimeOver ){
 									//printf("Mot3 move timer over \n");
 									Mot3MoveStop();
@@ -628,7 +641,11 @@ void Mot3MoveService(void)
 				case 2:
 							if( Mot3ActionState() == motor_stop ){
 								
-								if( Mot3.PulseNum < C_VerifyMinimumPulseNum ) {
+								if( Mot3.BrakeType != hall_forward_brake ) {
+									Mot3.Faultflag = Hall2Fault;
+									Mot3.Step = 4;
+								}
+								else if( (Mot3.PulseNum < C_VerifyMinimumPulseNum) ) {
 									Mot3.Faultflag = MotorFault;
 									Mot3.Step = 4;
 								}
@@ -654,9 +671,22 @@ void Mot3MoveService(void)
 							break;
 				case 3:
 							if( Mot3ActionState() == motor_stop ){
+								// 归位被异常限位打断时不报成功，防止把未到中点的数据当成自检成功。
+								if( (Mot3.BrakeType == ((MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake)) &&
+					(Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0) ) {
 									Mot3.En = 1;
 									Mot3.Reset = 0;
-							}	
+								}
+								else {
+									Mot3.Faultflag = MotorFault;
+									Mot3.Step = 4;
+								}
+							}
+							else if( Mot3ExcuteTime() > c_MoveTimeOver ) {
+								Mot3MoveStop();
+								Mot3.Faultflag = MotorFault;
+								Mot3.Step = 4;
+							}
 							break;
 				case 4:
 							printf("M3 fault =%d\n", Mot3.Faultflag );

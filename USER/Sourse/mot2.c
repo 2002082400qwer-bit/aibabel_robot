@@ -6,7 +6,7 @@
 /*******************************************************************************
 	constant define
 *******************************************************************************/
-#define c_MaxHeight 	510							//最大高度,单位mm 
+#define c_MaxHeight 	Motor2CalibrationHeight							//最大高度,单位mm
 #define c_PulseScaleFactor 10					//10倍
 #define c_HeightScaleFactor  1					//10倍
 #define c_SpeedScaleFactor 1					//10倍
@@ -574,9 +574,7 @@ void Mot2MoveTask(void)
 		}		
 }	
 
-/**
- * 函数作用：执行电机2两端霍尔标定，并以霍尔信号和超时控制停机；无传入参数。
- */
+/** 函数作用：首次执行两端标定，历史标定有效时只找基准限位后归位；无传入参数。 */
 void Mot2MoveService(void)
 {
 		u32 total; // 根据标定脉冲计算每毫米脉冲数的中间值。
@@ -602,11 +600,25 @@ void Mot2MoveService(void)
 							break;
 				case 1:
 							if( Mot2ActionState() == motor_stop ){
-								delay_ms(200);
-								Mot2SetCurrentPosition(0);
-								Mot2MoveForward( 20000, 20 ); 
-								Mot2.Step++;
-							}		
+								if( Mot2.BrakeType != hall_backward_brake ) {
+									Mot2.Faultflag = Hall1Fault;
+									Mot2.Step = 4;
+								}
+								else {
+									Mot2SetCurrentPosition(0);
+									if( MotorCalibrationLoaded != 0 ) {
+										// 历史标定有效：下限位已确认，直接结束归位，不再寻找上限位。
+										Mot2.CurHeight = 0;
+										Mot2.En = 1;
+										Mot2.Reset = 0;
+									}
+									else {
+										delay_ms(200);
+										Mot2MoveForward( 20000, 20 );
+										Mot2.Step++;
+									}
+								}
+							}
 							else if( Mot2ExcuteTime() > c_MoveTimeOver ){
 									//printf("Mot2 move timer over \n");
 									Mot2MoveStop();
@@ -617,7 +629,11 @@ void Mot2MoveService(void)
 				case 2:
 							if( Mot2ActionState() == motor_stop ){
 								
-								if( Mot2.PulseNum < C_VerifyMinimumPulseNum ) {
+								if( Mot2.BrakeType != hall_forward_brake ) {
+									Mot2.Faultflag = Hall2Fault;
+									Mot2.Step = 4;
+								}
+								else if( (Mot2.PulseNum < C_VerifyMinimumPulseNum) || ((Mot2.PulseNum * c_PulseScaleFactor / c_MaxHeight) == 0) ) {
 									Mot2.Faultflag = MotorFault;
 									Mot2.Step = 4;
 								}
@@ -644,9 +660,21 @@ void Mot2MoveService(void)
 							break;
 				case 3:
 							if( Mot2ActionState() == motor_stop ){
-								Mot2.En = 1;
-								Mot2.Reset = 0;
-							}	
+								// 归位被异常限位打断时不报成功，防止把未到中点的数据当成自检成功。
+								if( Mot2.BrakeType == hall_backward_brake ) {
+									Mot2.En = 1;
+									Mot2.Reset = 0;
+								}
+								else {
+									Mot2.Faultflag = MotorFault;
+									Mot2.Step = 4;
+								}
+							}
+							else if( Mot2ExcuteTime() > c_MoveTimeOver ) {
+								Mot2MoveStop();
+								Mot2.Faultflag = MotorFault;
+								Mot2.Step = 4;
+							}
 							break;
 				case 4:
 							printf("M2 fault =%d\n", Mot2.Faultflag );
