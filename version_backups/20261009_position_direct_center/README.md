@@ -18,3 +18,5 @@ git switch -c restore-position-direct-center backup-position-direct-center-20261
 ```
 
 当前 main 随后的提交恢复“先寻零点限位再回中”流程。
+
+重新烧录本备份固件前，应擦除位置日志页0x0803F000或失效其有效标记；回退版不会维护该页，遗留坐标可能已与机械位置不符。校准页0x0803F800可以保留。

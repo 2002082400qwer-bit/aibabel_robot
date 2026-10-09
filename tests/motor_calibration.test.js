@@ -41,7 +41,6 @@ function runMotorCalibrationTests(input) {
         const FLASH_COMPLETE = 0, motor_stop = 0, NoFault = 0; // 驱动成功状态及无故障停机状态。
         const FLASH_FLAG_EOP = 1, FLASH_FLAG_PGERR = 2, FLASH_FLAG_WRPRTERR = 4; // 测试用Flash标志。
         function printf() {} // 忽略串口输出。
-        function FlashMotorPositionInvalidate() { return 1; } function MotorPositionLoad() {} // 位置行为在独立位置测试覆盖。
         function FlashReadWord(address) { const index=(address-0x0803F800)/4; if (!Number.isInteger(index) || index<0 || index>=9) throw Error('读取区域错误'); return io.words[index]; } // 仅替代芯片内存映射访问，实际地址和读取循环仍执行生产函数。
         function Mot1Init() {} function Mot2Init() {} function Mot3Init() {} // 电机硬件初始化由默认状态替代。
         function FLASH_Unlock() { io.locked = false; } // 模拟解锁。
@@ -90,7 +89,7 @@ function runMotorCalibrationTests(input) {
     for (let axis=1; axis<=3; axis++) {
         const source=input.axes[axis-1]; // 对应电机的实际自检状态机。
         const service=calibrationExtract(source,'Mot'+axis+'MoveService'); // 保留生产状态机分支。
-        const environment = 'let MotorCalibrationLoaded = loaded; const MotorPositionLoaded = 0; const Motor1Enable=1, Motor2Enable=1; const c_MoveTimeOver='+([20000,40000,30000][axis-1])+'; const c_PulseScaleFactor=10, c_MaxAngle='+ (axis===1?180:65) +', c_MaxHeight=510, C_VerifyMinimumPulseNum=20; const motor_stop=0, motor_brake=1, motor_forward=2, motor_backward=3, hall_backward_brake=3, hall_forward_brake=1, pulse_forward_brake=0, pulse_backward_brake=2, Hall1Fault=1, Hall2Fault=2, MotorFault=4, NoFault=0; function printf(){} function delay_ms(){}'; // 状态机所用真实枚举值。
+        const environment = 'let MotorCalibrationLoaded = loaded; const Motor1Enable=1, Motor2Enable=1; const c_MoveTimeOver='+([20000,40000,30000][axis-1])+'; const c_PulseScaleFactor=10, c_MaxAngle='+ (axis===1?180:65) +', c_MaxHeight=510, C_VerifyMinimumPulseNum=20; const motor_stop=0, motor_brake=1, motor_forward=2, motor_backward=3, hall_backward_brake=3, hall_forward_brake=1, pulse_forward_brake=0, pulse_backward_brake=2, Hall1Fault=1, Hall2Fault=2, MotorFault=4; function printf(){} function delay_ms(){}'; // 状态机所用真实枚举值。
         const setup = ['LeftHallScan','RightHallScan','UpHallScan','DownHallScan','ActionHandle','MoveTask'].map(name=>'function Mot'+axis+name+'() {}').join('\n') + 'function Mot'+axis+'ActionState(){return Mot'+axis+'.Action;} function Mot'+axis+'ExcuteTime(){return Mot'+axis+'.PidTimerB;} function Mot'+axis+'SetCurrentPosition(position){Mot'+axis+'.CurPosition=position;} function Mot'+axis+'MoveForward(position,speed){io.moves.push(["forward",position]); Mot'+axis+'.Action=2;} function Mot'+axis+'MoveBackward(position,speed){io.moves.push(["backward",position]); Mot'+axis+'.Action=3;} function Mot'+axis+'MoveStop(){io.stopped=true;Mot'+axis+'.Action=0;}'; // 仅代替动作硬件及传感器输入。
         const factory=new Function('Mot1','Mot2','Mot3','io','loaded',environment+setup+service+'; return Mot'+axis+'MoveService;'); // 实际归位函数环境。
         /** 函数作用：建立指定电机的归位场景。loaded为保存记录是否有效。 */

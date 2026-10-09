@@ -18,7 +18,7 @@
           <Vendor>FMD</Vendor>
           <PackID>FMD.FT32F1xx_DFP.1.0.3</PackID>
           <PackURL>https://www.fremontmicro.com/upload/tools/pack/</PackURL>
-          <Cpu>IRAM(0x20000000,0x0000C000) IROM(0x08000000,0x0003F000) CPUTYPE("Cortex-M3") CLOCK(12000000) ELITTLE</Cpu>
+          <Cpu>IRAM(0x20000000,0x0000C000) IROM(0x08000000,0x0003F800) CPUTYPE("Cortex-M3") CLOCK(12000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
           <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0FT32F10x_512 -FS08000000 -FL080000 -FP0($$Device:FT32F103VC$Flash\FT32F10x_512.FLM))</FlashDriverDll>
@@ -252,7 +252,7 @@
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x3f000</Size>
+                <Size>0x3f800</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -277,7 +277,7 @@
               <OCR_RVCT4>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x3f000</Size>
+                <Size>0x3f800</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>

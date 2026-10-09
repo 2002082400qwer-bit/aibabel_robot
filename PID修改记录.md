@@ -202,3 +202,13 @@ Start-Process -FilePath 'C:\Users\GT0061\AppData\Local\Keil_v5\UV4\UV4.exe' -Arg
 - 独立只读审查无未修复Critical/Important。使用AGENTS指定新版Keil完整重建通过0错误7个已有警告，生成Objects/robot.axf和Objects/robot.hex。Code=37824、RO-data=456、RW-data=176、ZI-data=3256；HEX所有行校验和通过，Flash最高结束地址0x08009638，小于位置页0x0803F000。
 - 最终构建日志build_motor_position_final_codex.log时间晚于最后逻辑修复；旧D:\Keil_v5许可错误日志不作为最终结果。未烧录，未验证实际机械运动或擦写中断电的硬件时序。
 - 保留用户原有PID、方向、速度调参及motor.h排版，选择性提交本次存储/启动功能；context原有删除保持在工作区。
+
+## 2026-10-09 保存直接回中版本并恢复寻零限位启动
+
+- 按用户要求，先将完整工作区（含现有PID、方向、速度调参）保存为提交5c8f85d，建立本地标签backup-position-direct-center-20261009。对应HEX、AXF、编译日志及SHA256保存于version_backups/20261009_position_direct_center；三份备份文件校验一致。
+- 当前恢复MOT1/MOT3先执行case0寻找零点侧限位，确认霍尔后用历史半行程回中；MOT2只回最低点限位。首次完整自检及成功保存校准保持，已有有效校准不重新往返自检。
+- 撤回当前位置日志、启动前失效和跳过case0直接回中功能。Flash读写初始化仍在flash.c/h，原36字节版本1校准与地址0x0803F800兼容；Keil程序区恢复0x3F800，末2KB保留校准页。所有现有PID、GPIO方向和运行速度保持本轮备份状态。
+- 原46个校准、12个MOT2限位检查通过；另执行真实三轴启动状态机3个场景，确认动作顺序MOT1反向0→正向半行程、MOT2反向0、MOT3反向0→正向半行程，最终Reset=0/En=1。
+- 新版Keil完整重建0错误7已有警告，Code=36004、RO-data=456、RW-data=172、ZI-data=3260，生成当前Objects/robot.hex。HEX校验通过，Flash最高结束地址0x08008F18，小于校准页；日志build_limit_home_restore_final_codex.log。未烧录，未实机验证。
+- 如以后重新烧录停稳位置直接回中备份，应先失效或擦除旧位置页0x0803F000，避免回退固件运行后旧坐标不再可信；校准页可保留。
+- 独立审查确认三轴其他函数、宏、PID/方向/速度均与备份一致；61项独立检查通过，无Critical/Important。

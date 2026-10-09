@@ -5,10 +5,6 @@
 
 uint8_t MotorEn; // 电机服务初始化完成标志。
 u8 MotorCalibrationLoaded; // 本次启动是否使用历史标定数据。
-u8 MotorPositionLoaded; // 本次启动是否恢复可信坐标，运动后仍保留启动路径选择。
-static u8 MotorCalibrationStored; // 校准已在Flash中有效保存。
-static u8 MotorPositionDirty; // 旧位置已持久化失效，允许本轮多轴运动。
-static u8 MotorPositionSaveAttempted; // 本轮停稳是否已尝试保存，避免失败重试擦写。
 static u8 MotorCalibrationSaveAttempted; // 本次启动是否已尝试保存，避免失败后反复擦写。
 
 /**
@@ -34,7 +30,7 @@ static u8 MotorCalibrationValidate(const FlashCalibrationData *calibration)
 }
 
 /**
- * 函数作用：通过Flash接口读取历史标定，保留Reset状态等待位置恢复及归位。
+ * 函数作用：通过Flash接口读取历史标定，保留Reset状态让电机先找基准再归位。
  * 无传入参数；空白、损坏、不兼容或超出电机范围时保留默认值和完整自检流程。
  */
 static void MotorCalibrationLoad(void)
@@ -56,7 +52,6 @@ static void MotorCalibrationLoad(void)
     Mot3.MaxPulseNum = (u16)calibration.MaxPulseNum[2];
     Mot3.PulseNumPerAngle = (u16)calibration.PulseScale[2];
 #endif
-    MotorCalibrationStored = 1;
     MotorCalibrationLoaded = 1;
     printf("motor calibration loaded\n");
 }
@@ -108,107 +103,8 @@ static void MotorCalibrationService(void)
 #endif
     if( MotorCalibrationMask == 0 ) return;
     MotorCalibrationSaveAttempted = 1;
-    if( MotorCalibrationSave() != 0 ) {
-        MotorCalibrationStored = 1;
-        printf("motor calibration saved\n");
-    }
+    if( MotorCalibrationSave() != 0 ) printf("motor calibration saved\n");
     else printf("motor calibration save failed\n");
-}
-
-
-/**
- * 函数作用：有效校准加载后恢复可信停稳坐标，仍保留Reset进行直接回中。
- * 无传入参数；坐标无效或越界时保留寻限位流程。
- */
-static void MotorPositionLoad(void)
-{
-    FlashMotorPositionData position; // Flash中的两路停稳坐标。
-    MotorPositionLoaded = 0;
-    if( MotorCalibrationLoaded == 0 ) return;
-    if( FlashMotorPositionRead(&position, MotorCalibrationMask) == 0 ) return;
-#if Motor1Enable == 1
-    if( position.Motor1Pulse > Mot1.MaxPulseNum ) return;
-#endif
-#if Motor3Enable == 1
-    if( position.Motor3Pulse > Mot3.MaxPulseNum ) return;
-#endif
-#if Motor1Enable == 1
-    Mot1.CurPosition = (u16)position.Motor1Pulse;
-    Mot1.CurAngle = (u16)((u32)Mot1.CurPosition * 100 / Mot1.PulseNumPerAngle);
-#endif
-#if Motor3Enable == 1
-    Mot3.CurPosition = (u16)position.Motor3Pulse;
-    Mot3.CurAngle = (u16)((u32)Mot3.CurPosition * 100 / Mot3.PulseNumPerAngle);
-#endif
-    MotorPositionLoaded = 1;
-}
-
-/**
- * 函数作用：判断所有启用轴是否完成归位、无故障、停稳且无待执行任务。
- * 无传入参数；返回1表示允许保存停稳坐标。
- */
-static u8 MotorPositionStopped(void)
-{
-#if Motor1Enable == 1
-    if( (Mot1.Reset != 0) || (Mot1.En == 0) || (Mot1.Action != motor_stop) ||
-        (Mot1.Faultflag != NoFault) || (Move1.En != 0) ) return 0;
-#endif
-#if Motor2Enable == 1
-    if( (Mot2.Reset != 0) || (Mot2.En == 0) || (Mot2.Action != motor_stop) ||
-        (Mot2.Faultflag != NoFault) || (Move2.En != 0) ) return 0;
-#endif
-#if Motor3Enable == 1
-    if( (Mot3.Reset != 0) || (Mot3.En == 0) || (Mot3.Action != motor_stop) ||
-        (Mot3.Faultflag != NoFault) || (Move3.En != 0) ) return 0;
-#endif
-    return MotorCalibrationMask != 0;
-}
-
-/**
- * 函数作用：第一路电机启动前持久化失效旧坐标，多轴同轮运动只失效一次。
- * 无传入参数；返回1允许启动，0必须报故障并拒绝使能PWM。
- */
-u8 MotorPositionPrepareMove(void)
-{
-    if( MotorPositionDirty != 0 ) {
-        // 上轮保存失败也允许下一次真实运动开启新的停稳保存周期。
-        MotorPositionSaveAttempted = 0;
-        return 1;
-    }
-    if( FlashMotorPositionInvalidate() == 0 ) return 0;
-    MotorPositionDirty = 1;
-    MotorPositionSaveAttempted = 0;
-    return 1;
-}
-
-/**
- * 函数作用：校准有效且全部电机停稳后追加保存一次位置。
- * 无传入参数；失败本轮不重试，下一次运动才开启新的保存周期。
- */
-static void MotorPositionService(void)
-{
-    FlashMotorPositionData position; // 本次停稳位置快照。
-    u8 saved; // Flash提交结果，失败也可能已完成标记写入。
-    if( (MotorCalibrationStored == 0) || (MotorPositionSaveAttempted != 0) ) return;
-    if( MotorPositionStopped() == 0 ) return;
-    MotorPositionSaveAttempted = 1;
-    position.Motor1Pulse = 0;
-    position.Motor3Pulse = 0;
-#if Motor1Enable == 1
-    if( Mot1.CurPosition > Mot1.MaxPulseNum ) return;
-    position.Motor1Pulse = Mot1.CurPosition;
-#endif
-#if Motor3Enable == 1
-    if( Mot3.CurPosition > Mot3.MaxPulseNum ) return;
-    position.Motor3Pulse = Mot3.CurPosition;
-#endif
-    saved = FlashMotorPositionWrite(&position, MotorCalibrationMask);
-    // 失败也可能已经提交标记，下一次启动必须重新确认并失效。
-    MotorPositionDirty = 0;
-    if( saved != 0 ) {
-        printf("motor position saved\n");
-    }
-    else printf("motor position save failed\n");
 }
 
 /** 函数作用：初始化启用的电机、Flash存储访问并读取历史校准数据；无传入参数。 */
@@ -216,10 +112,6 @@ void MotorInit(void)
 {
     MotorCalibrationLoaded = 0;
     MotorCalibrationSaveAttempted = 0;
-    MotorCalibrationStored = 0;
-    MotorPositionLoaded = 0;
-    MotorPositionDirty = 0;
-    MotorPositionSaveAttempted = 0;
 #if Motor1Enable == 1
     Mot1Init();
 #endif
@@ -231,11 +123,10 @@ void MotorInit(void)
 #endif
     FlashInit();
     MotorCalibrationLoad();
-    MotorPositionLoad();
     MotorEn = 1;
 }
 
-/** 函数作用：依次执行三路电机服务，首次保存标定并在停稳后保存位置；无传入参数。 */
+/** 函数作用：依次执行三路电机服务，并在首次成功后保存标定；无传入参数。 */
 void MotorService(void)
 {
 #if Motor1Enable == 1
@@ -248,5 +139,4 @@ void MotorService(void)
     Mot3MoveService();
 #endif
     MotorCalibrationService();
-    MotorPositionService();
 }

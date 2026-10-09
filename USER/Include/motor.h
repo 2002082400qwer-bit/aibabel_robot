@@ -90,8 +90,6 @@ extern uint8_t MotorEn; // 电机服务初始化完成标志。
 extern u8 MotorCalibrationLoaded; // 本次启动是否读取到有效的历史校准数据。
 #define Motor2CalibrationHeight 510 // 电机2原有标定高度，单位毫米。
 
-extern u8 MotorPositionLoaded; // 本次启动可信位置标志，供直接回中状态机使用。
-u8 MotorPositionPrepareMove(void); // 启动前持久化失效旧位置，返回0时禁止移动。
 void MotorInit(void);
 void MotorService(void);
 
