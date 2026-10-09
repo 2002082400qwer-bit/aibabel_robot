@@ -187,3 +187,18 @@ Start-Process -FilePath 'C:\Users\GT0061\AppData\Local\Keil_v5\UV4\UV4.exe' -Arg
 官方资料：
 - Keil命令行构建与退出码：https://www.keil.com/support/man/docs/uv4/uv4_commandline.asp
 - MDK-Lite限制：https://www2.keil.com/limits
+
+## 2026-10-09 停稳位置日志与可信启动直接回中
+
+- 用户最终选择“停稳后保存，正常断电直接回中；运动中断电重新寻限位”，替代绝对位置传感器方案；断电期间机构不得被外力移动，增量编码器不能检测断电期间位移。
+- Flash存储初始化、读取、追加与失效均位于flash.c/h，公开FlashMotorPositionRead、FlashMotorPositionWrite、FlashMotorPositionInvalidate；校准版本1、36字节和0x0803F800地址兼容已有固件。
+- 位置页0x0803F000独占2KB，共102条20字节记录。每条保存版本/启用组合、MOT1/MOT3脉冲坐标、CRC32，数据读回正确后最后写成功标记；最新占用条无效或未完成时不得使用更旧坐标。
+- 六个MotXMoveForward/Backward入口在使能PID前同步失效旧位置标记，任何一路首次开始运动都先完成此步骤；失败则禁止启动并报告MotorFault，同轮多轴运动不再写Flash。
+- 全部启用电机归位完成、En=1、Action=stop、无故障且无待任务后追加一次位置。一直停止不重复写，每停止周期最多一次尝试；日志页满才在全部停稳时擦位置页，不擦校准页。
+- 独立审查发现并修复“Flash标记实际写成功但驱动返回失败”的边界：追加尝试后无条件清RAM Dirty，下次运动重新检查并失效最新记录；SaveAttempted保持1避免本周期重复写。
+- MotorInit在校准有效后加载位置，检查坐标范围并恢复CurPosition/CurAngle。可信位置时MOT1/MOT3跳过case0，按当前位置选择正向或反向直达MaxPulseNum/2，已经在中点则保持PWM关闭；最终归位仍保留限位和超时保护。MOT2始终回最低限位。
+- 位置空白、失效、损坏、越界或运动中断电时，已有校准仍有效，MOT1/MOT3只寻一次零点侧限位再回中；校准无效才重新完整往返自检。
+- robot_calibration.sct和robot.uvprojx程序区限制改为0x3F000（252KB），预留最后4KB两页。当前代码与选择性提交的HEAD原轴代码组合分别通过51例位置检查、46例校准检查；原MOT2限位12例通过。新测试可用node tests/motor_position.test.js运行（当前环境通过functions.exec运行）。
+- 独立只读审查无未修复Critical/Important。使用AGENTS指定新版Keil完整重建通过0错误7个已有警告，生成Objects/robot.axf和Objects/robot.hex。Code=37824、RO-data=456、RW-data=176、ZI-data=3256；HEX所有行校验和通过，Flash最高结束地址0x08009638，小于位置页0x0803F000。
+- 最终构建日志build_motor_position_final_codex.log时间晚于最后逻辑修复；旧D:\Keil_v5许可错误日志不作为最终结果。未烧录，未验证实际机械运动或擦写中断电的硬件时序。
+- 保留用户原有PID、方向、速度调参及motor.h排版，选择性提交本次存储/启动功能；context原有删除保持在工作区。

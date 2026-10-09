@@ -15,7 +15,18 @@ typedef struct
     u32 PulseScale[FlashCalibrationMotorCount]; // 对应电机的角度或毫米脉冲换算系数。
 } FlashCalibrationData;
 
-/** 函数作用：初始化Flash存储访问状态并锁定写保护，不擦除已有校准；无传入参数。 */
+typedef struct {
+    u32 Motor1Pulse; // MOT1停稳后的脉冲坐标。
+    u32 Motor3Pulse; // MOT3停稳后的脉冲坐标。
+} FlashMotorPositionData; // 停稳位置快照，MOT2始终重新找最低限位。
+
+/** 函数作用：读取最新可信位置；data接收坐标，motorMask为启用组合，失败输出不变。 */
+u8 FlashMotorPositionRead(FlashMotorPositionData *data, u8 motorMask);
+/** 函数作用：全部停稳后追加位置；data为坐标，motorMask为启用组合，返回1成功。 */
+u8 FlashMotorPositionWrite(const FlashMotorPositionData *data, u8 motorMask);
+/** 函数作用：运动前失效旧位置；无传入参数，返回0时必须拒绝运动。 */
+u8 FlashMotorPositionInvalidate(void);
+/** 函数作用：初始化存储并锁定写保护，不擦除已有记录；无传入参数。 */
 void FlashInit(void);
 /**
  * 函数作用：读取并校验持久化记录，成功后填充校准数据。

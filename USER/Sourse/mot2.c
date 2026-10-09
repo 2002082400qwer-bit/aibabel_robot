@@ -373,6 +373,7 @@ void Mot2MoveBrake(void)
  * TarPosition：目标位置的脉冲数。
  * Velocity：目标运动速度。
  */
+/** 函数作用：正向启动前失效旧坐标；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
 void Mot2MoveForward( u32 TarPosition, u16 Velocity )
 {
 		printf("M2 forward\n");
@@ -391,6 +392,11 @@ void Mot2MoveForward( u32 TarPosition, u16 Velocity )
 		printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
 		if( Mot2.TarPulseNum != 0 ) {
 		
+			if( MotorPositionPrepareMove() == 0 ) {
+			    Mot2.Faultflag = MotorFault;
+			    Mot2.En = 0;
+			    return;
+			}
 			Mot2EnablePidControl();
 			Mot2.Action = motor_forward;
 		
@@ -403,6 +409,7 @@ void Mot2MoveForward( u32 TarPosition, u16 Velocity )
  * TarPosition：目标位置的脉冲数，0表示向下限位运动。
  * Velocity：目标运动速度。
  */
+/** 函数作用：反向启动前失效旧坐标；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
 void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 {
 		printf("M2 backward\n");
@@ -425,6 +432,11 @@ void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 		
 		if( Mot2.TarPulseNum != 0 ) {
 			
+			if( MotorPositionPrepareMove() == 0 ) {
+			    Mot2.Faultflag = MotorFault;
+			    Mot2.En = 0;
+			    return;
+			}
 			Mot2EnablePidControl();
 			Mot2.Action = motor_backward;
 		}

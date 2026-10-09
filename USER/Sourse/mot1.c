@@ -423,6 +423,7 @@ void Mot1MoveBrake(void)
 			printf("m1pulsebrake\n");
 		}	
 }	
+/** 函数作用：正向启动前失效旧坐标；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
 void Mot1MoveForward( u16 TarPosition, u16 Velocity )
 {
 		printf("m1 forward\n");
@@ -443,6 +444,11 @@ void Mot1MoveForward( u16 TarPosition, u16 Velocity )
 		printf("M1.TarPulseNum=%d\n", Mot1.TarPulseNum);
 		if( Mot1.TarPulseNum != 0 ) {
 		
+			if( MotorPositionPrepareMove() == 0 ) {
+			    Mot1.Faultflag = MotorFault;
+			    Mot1.En = 0;
+			    return;
+			}
 			Mot1EnablePidControl();
 			Mot1.Action = motor_forward;
 		
@@ -450,6 +456,7 @@ void Mot1MoveForward( u16 TarPosition, u16 Velocity )
 			Mot1.PidTimerB = 0;
 }
 
+/** 函数作用：反向启动前失效旧坐标；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
 void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 {
 		printf("m1 backward\n");
@@ -471,6 +478,11 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 		
 		if( Mot1.TarPulseNum != 0 ) {
 			
+			if( MotorPositionPrepareMove() == 0 ) {
+			    Mot1.Faultflag = MotorFault;
+			    Mot1.En = 0;
+			    return;
+			}
 			Mot1EnablePidControl();
 			Mot1.Action = motor_backward;
 		}
@@ -635,6 +647,32 @@ void Mot1MoveService(void)
 		Mot1ActionHandle();
 	
 		if( Mot1.Reset ) {
+
+            if( (Mot1.Step == 0) && (MotorCalibrationLoaded != 0) && (MotorPositionLoaded != 0) ) {
+                // 可信停稳位置：跳过case0，根据保存坐标直接选择方向回中。
+                if( Mot1.Faultflag != NoFault ) {
+                    Mot1.En = 0;
+                    Mot1.Step = 4;
+                    return;
+                }
+                if( Mot1.CurPosition == Mot1.MaxPulseNum / 2 ) {
+                    if( (Mot1.Hall1Sta != 0) || (Mot1.Hall2Sta != 0) ) {
+                        Mot1.Faultflag = MotorFault;
+                        Mot1.Step = 4;
+                        return;
+                    }
+                    Mot1MoveStop();
+                    Mot1.En = 1;
+                    Mot1.Reset = 0;
+                    return;
+                }
+                if( Mot1.CurPosition < Mot1.MaxPulseNum / 2 )
+                    Mot1MoveForward( Mot1.MaxPulseNum / 2, 900 );
+                else Mot1MoveBackward( Mot1.MaxPulseNum / 2, 900 );
+                Mot1.Step = (Mot1.Faultflag == NoFault) ? 3 : 4;
+                return;
+            }
+
 			
 			switch( Mot1.Step )
 			{
@@ -703,8 +741,9 @@ void Mot1MoveService(void)
 				case 3:
 							if( Mot1ActionState() == motor_stop ){
 								// 归位被异常限位打断时不报成功，防止把未到中点的数据当成自检成功。
-								if( (Mot1.BrakeType == ((MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake)) &&
-					(Mot1.Hall1Sta == 0) && (Mot1.Hall2Sta == 0) ) {
+								if( (((MotorPositionLoaded != 0) && ((Mot1.BrakeType == pulse_forward_brake) || (Mot1.BrakeType == pulse_backward_brake))) ||
+                    ((MotorPositionLoaded == 0) && (Mot1.BrakeType == ((MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake)))) &&
+					(Mot1.Hall1Sta == 0) && (Mot1.Hall2Sta == 0) && (Mot1.Faultflag == NoFault) ) {
 									Mot1.En = 1;
 									Mot1.Reset = 0;
 								}
