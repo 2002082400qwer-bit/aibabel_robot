@@ -6,7 +6,7 @@
 /*******************************************************************************
 	constant define
 *******************************************************************************/
-#define c_MaxHeight 	Motor2CalibrationHeight							//最大高度,单位mm
+#define c_MaxHeight 	Motor2CalibrationHeight							//最大高度,单位mm 
 #define c_PulseScaleFactor 10					//10倍
 #define c_HeightScaleFactor  1					//10倍
 #define c_SpeedScaleFactor 1					//10倍
@@ -29,7 +29,7 @@ void Mot2Init(void)
 	Mot2.Step = 0;
 	Mot2.PidTimer = 0;
 	Mot2.PidTimerB = 0;
-	Mot2.PidEn = 1;
+	Mot2.PidEn = 0;
 	Mot2.PulseSta = GPIO_ReadInputDataBit( Mot2PulseIO, Mot2PulsePin);
 	Mot2.PulseDeb = 0;
 	Mot2.PulseDebB = 0;
@@ -376,32 +376,32 @@ void Mot2MoveBrake(void)
 /** 函数作用：正向启动前失效旧坐标；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
 void Mot2MoveForward( u32 TarPosition, u16 Velocity )
 {
-		printf("M2 forward\n");
-		//Mot2DirPin = NegativeMove;
-		GPIO_SetBits(Mot2DirIO, Mot2DirPin);
+	printf("M2 forward\n");
+	//Mot2DirPin = NegativeMove;
+	GPIO_SetBits(Mot2DirIO, Mot2DirPin);
+
+	Mot2.TarPosition = TarPosition;
+	Mot2.TarVelocity = Velocity;
 	
-		Mot2.TarPosition = TarPosition;
-	  Mot2.TarVelocity = Velocity;
-		
-		printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
-		printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+	printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
+	printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+
+	if(  Mot2.TarPosition >  Mot2.CurPosition )	Mot2.TarPulseNum =  Mot2.TarPosition -  Mot2.CurPosition;
+	else Mot2.TarPulseNum = 0;
 	
-		if(  Mot2.TarPosition >  Mot2.CurPosition )	Mot2.TarPulseNum =  Mot2.TarPosition -  Mot2.CurPosition;
-	  else Mot2.TarPulseNum = 0;
-		
-		printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
-		if( Mot2.TarPulseNum != 0 ) {
-		
-			if( MotorPositionPrepareMove() == 0 ) {
-			    Mot2.Faultflag = MotorFault;
-			    Mot2.En = 0;
-			    return;
-			}
-			Mot2EnablePidControl();
-			Mot2.Action = motor_forward;
-		
+	printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
+	if( Mot2.TarPulseNum != 0 ) {
+	
+		if( MotorPositionPrepareMove() == 0 ) {
+		    Mot2.Faultflag = MotorFault;
+		    Mot2.En = 0;
+		    return;
 		}
-			Mot2.PidTimerB = 0;
+		Mot2EnablePidControl();
+		Mot2.Action = motor_forward;
+	
+	}
+	Mot2.PidTimerB = 0;
 }
 
 /**
@@ -412,35 +412,35 @@ void Mot2MoveForward( u32 TarPosition, u16 Velocity )
 /** 函数作用：反向启动前失效旧坐标；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
 void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 {
-		printf("M2 backward\n");
-		//Mot2DirPin = PositiveMove;
-		GPIO_ResetBits(Mot2DirIO, Mot2DirPin);
+	printf("M2 backward\n");
+	//Mot2DirPin = PositiveMove;
+	GPIO_ResetBits(Mot2DirIO, Mot2DirPin);
+
+	Mot2.TarPosition = TarPosition;
+	Mot2.TarVelocity = Velocity;
 	
-		Mot2.TarPosition = TarPosition;
-	  Mot2.TarVelocity = Velocity;
-		
-		printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
-		printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+	printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
+	printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+
+	if( Mot2.TarPosition != 0 ) {
+		if(  Mot2.CurPosition >  Mot2.TarPosition )	Mot2.TarPulseNum =  Mot2.CurPosition -  Mot2.TarPosition;
+		else Mot2.TarPulseNum = 0;
+	} else {
+			Mot2.TarPulseNum = Mot2.MaxPulseNum*2;
+	}	
+	printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
 	
-	  if( Mot2.TarPosition != 0 ) {
-			if(  Mot2.CurPosition >  Mot2.TarPosition )	Mot2.TarPulseNum =  Mot2.CurPosition -  Mot2.TarPosition;
-			else Mot2.TarPulseNum = 0;
-		} else {
-				Mot2.TarPulseNum = Mot2.MaxPulseNum*2;
-		}	
-		printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
+	if( Mot2.TarPulseNum != 0 ) {
 		
-		if( Mot2.TarPulseNum != 0 ) {
-			
-			if( MotorPositionPrepareMove() == 0 ) {
-			    Mot2.Faultflag = MotorFault;
-			    Mot2.En = 0;
-			    return;
-			}
-			Mot2EnablePidControl();
-			Mot2.Action = motor_backward;
+		if( MotorPositionPrepareMove() == 0 ) {
+		    Mot2.Faultflag = MotorFault;
+		    Mot2.En = 0;
+		    return;
 		}
-		Mot2.PidTimerB = 0;
+		Mot2EnablePidControl();
+		Mot2.Action = motor_backward;
+	}
+	Mot2.PidTimerB = 0;
 }
 
 /**
@@ -586,7 +586,9 @@ void Mot2MoveTask(void)
 		}		
 }	
 
-/** 函数作用：首次执行两端标定，历史标定有效时只找基准限位后归位；无传入参数。 */
+/**
+ * 函数作用：首次执行电机2两端霍尔标定，历史标定有效时只找下限位归位；无传入参数。
+ */
 void Mot2MoveService(void)
 {
 		u32 total; // 根据标定脉冲计算每毫米脉冲数的中间值。
@@ -607,7 +609,7 @@ void Mot2MoveService(void)
 			{
 				case 0:
 							Mot2SetCurrentPosition(20000);
-							Mot2MoveBackward( 0, 30 );
+							Mot2MoveBackward( 0, 50 );
 							Mot2.Step++;
 							break;
 				case 1:
@@ -626,7 +628,7 @@ void Mot2MoveService(void)
 									}
 									else {
 										delay_ms(200);
-										Mot2MoveForward( 20000, 20 );
+										Mot2MoveForward( 20000, 50 );
 										Mot2.Step++;
 									}
 								}
@@ -658,7 +660,7 @@ void Mot2MoveService(void)
 									printf("M2.PulseNumPerMm =%lu\n", (unsigned long)Mot2.PulseNumPerMm );
 									
 									delay_ms(500);
-									Mot2MoveBackward( 0, 30 );
+									Mot2MoveBackward( 0, 50 );
 									Mot2.Step = 3;
 									
 								}	

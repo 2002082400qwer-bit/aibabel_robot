@@ -18,40 +18,40 @@ extern "C" {
 #define PositiveMove	0 // 正向运动的方向电平标志。
 #define NegativeMove 	1 // 反向运动的方向电平标志。
 
-#define Mot1EnIO				GPIOE // 电机1PWM使能端口。
+#define Mot1EnIO			GPIOE 		// 电机1PWM使能端口。
 #define Mot1EnPin 			GPIO_Pin_13 // 电机1PWM使能引脚。
-#define Mot1DirIO 			GPIOD // 电机1方向控制端口。
+#define Mot1DirIO 			GPIOD 		// 电机1方向控制端口。
 #define Mot1DirPin 			GPIO_Pin_14 // 电机1方向控制引脚。
-#define Mot1PulseIO 		GPIOE // 电机1编码器脉冲端口。
+#define Mot1PulseIO 		GPIOE 		// 电机1编码器脉冲端口。
 #define Mot1PulsePin 		GPIO_Pin_15 // 电机1编码器脉冲引脚。
-#define Mot1LeftSwIO		GPIOA // 电机1左限位霍尔端口。
-#define Mot1LeftSwPin		GPIO_Pin_5 // 电机1左限位霍尔引脚，原备选GPIO_Pin_7。
-#define Mot1MiddleSwIO	GPIOC // 电机1中位霍尔端口。
-#define Mot1MiddleSwPin	GPIO_Pin_4 // 电机1中位霍尔引脚。
-#define Mot1RightSwIO		GPIOC // 电机1右限位霍尔端口。
-#define Mot1RightSwPin	GPIO_Pin_7 // 电机1右限位霍尔引脚，原备选GPIO_Pin_5。
+#define Mot1LeftSwIO		GPIOA 		// 电机1左限位霍尔端口。
+#define Mot1LeftSwPin		GPIO_Pin_5 	// 电机1左限位霍尔引脚，原备选GPIO_Pin_7。
+#define Mot1MiddleSwIO		GPIOC 		// 电机1中位霍尔端口。
+#define Mot1MiddleSwPin		GPIO_Pin_4 	// 电机1中位霍尔引脚。
+#define Mot1RightSwIO		GPIOC 		// 电机1右限位霍尔端口。
+#define Mot1RightSwPin		GPIO_Pin_7 	// 电机1右限位霍尔引脚，原备选GPIO_Pin_5。
 
-#define Mot2EnIO				GPIOE // 电机2PWM使能端口。
-#define Mot2EnPin 			GPIO_Pin_9 // 电机2PWM使能引脚。
-#define Mot2DirIO 			GPIOD // 电机2方向控制端口。
+#define Mot2EnIO			GPIOE 		// 电机2PWM使能端口。
+#define Mot2EnPin 			GPIO_Pin_9 	// 电机2PWM使能引脚。
+#define Mot2DirIO 			GPIOD 		// 电机2方向控制端口。
 #define Mot2DirPin 			GPIO_Pin_13 // 电机2方向控制引脚。
-#define Mot2PulseIO 		GPIOD // 电机2编码器脉冲端口。
+#define Mot2PulseIO 		GPIOD 		// 电机2编码器脉冲端口。
 #define Mot2PulsePin 		GPIO_Pin_12 // 电机2编码器脉冲引脚。
-#define Mot2UpSwIO			GPIOA // 电机2上限位霍尔端口。
-#define Mot2UpSwPin			GPIO_Pin_5 // 电机2上限位霍尔引脚。
-#define Mot2DownSwIO		GPIOA // 电机2下限位霍尔端口。
-#define Mot2DownSwPin		GPIO_Pin_6 // 电机2下限位霍尔引脚。
+#define Mot2UpSwIO			GPIOA 		// 电机2上限位霍尔端口。
+#define Mot2UpSwPin			GPIO_Pin_5 	// 电机2上限位霍尔引脚。
+#define Mot2DownSwIO		GPIOA 		// 电机2下限位霍尔端口。
+#define Mot2DownSwPin		GPIO_Pin_6 	// 电机2下限位霍尔引脚。
 
-#define Mot3EnIO 				GPIOE // 电机3PWM使能端口。
+#define Mot3EnIO 			GPIOE 		// 电机3PWM使能端口。
 #define Mot3EnPin 			GPIO_Pin_11 // 电机3PWM使能引脚。
-#define Mot3DirIO 			GPIOA // 电机3方向控制端口。
-#define Mot3DirPin 			GPIO_Pin_8 // 电机3方向控制引脚。
-#define Mot3PulseIO 		GPIOC // 电机3编码器脉冲端口。
-#define Mot3PulsePin 		GPIO_Pin_9 // 电机3编码器脉冲引脚。
-#define Mot3UpSwIO			GPIOA // 电机3上限位霍尔端口。
-#define Mot3UpSwPin			GPIO_Pin_4 // 电机3上限位霍尔引脚。
-#define Mot3DownSwIO		GPIOA // 电机3下限位霍尔端口。
-#define Mot3DownSwPin		GPIO_Pin_3 // 电机3下限位霍尔引脚。
+#define Mot3DirIO 			GPIOA 		// 电机3方向控制端口。
+#define Mot3DirPin 			GPIO_Pin_8 	// 电机3方向控制引脚。
+#define Mot3PulseIO 		GPIOC 		// 电机3编码器脉冲端口。
+#define Mot3PulsePin 		GPIO_Pin_9 	// 电机3编码器脉冲引脚。
+#define Mot3UpSwIO			GPIOA 		// 电机3上限位霍尔端口。
+#define Mot3UpSwPin			GPIO_Pin_4 	// 电机3上限位霍尔引脚。
+#define Mot3DownSwIO		GPIOA 		// 电机3下限位霍尔端口。
+#define Mot3DownSwPin		GPIO_Pin_3 	// 电机3下限位霍尔引脚。
 
 #define Mot1MaxAngle    180 //单位度
 #define Mot2MaxDistance 500 //单位毫米
