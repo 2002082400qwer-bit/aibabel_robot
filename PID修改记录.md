@@ -156,3 +156,14 @@
 
 - 补充官方示例核对：FLASH_RAM 仅演示 DMA 将 Flash 常量复制到 RAM；同目录 Program 才演示 Flash 解锁、擦页、写字、锁定和读回检查，本轮擦写流程与其一致。
 - 最终检查同时运行工作区及本次提交代码的40例校准测试，覆盖原版本位置补偿依赖；两版本均通过，MOT2限位12例通过。
+
+## 2026-10-09 Flash校准存储模块拆分
+
+- 新增 USER/Sourse/flash.c 和 USER/Include/flash.h。Flash存储初始化、内存映射读取、记录格式、CRC校验、擦页写字及读回验证集中在Flash模块，模块不依赖电机全局状态。
+- 公开 FlashInit(void)、FlashCalibrationRead(FlashCalibrationData *data, u8 motorMask)、FlashCalibrationWrite(const FlashCalibrationData *data, u8 motorMask)；数据结构按MOT1/MOT2/MOT3顺序保存行程与换算系数，mask位0至2对应三路启用状态，读写返回1成功、0失败。
+- FlashInit只恢复写保护，不擦除原有数据；读取失败不改输出数据；写入仍先写数据和CRC，读回通过后最后写成功标记，擦写失败重新锁定。
+- motor.c保留电机参数范围及换算关系检查、校准数据整理/应用和首次成功后保存一次的时机，通过上述接口访问Flash；MotorInit自动调用FlashInit并加载校准。
+- 记录地址0x0803F800、36字节版本1格式及CRC算法保持兼容，原有首次自检和重启归位流程保持；Keil工程已加入flash.c，末2KB预留链接脚本保持。
+- 验证：重构前40例通过；新接口实现前检查因缺少FlashInit失败；重构后46例真实C转JS有界校准/归位检查、12例MOT2限位检查通过，改变读取地址的突变检查被拒绝。
+- Keil重新构建退出码2，45个C9555E/A9555E/R207许可证错误，未生成新固件、未烧录或实机验证。保留原有电机调参、motor.h格式改动和context原有删除，不混入本轮提交。
+- 独立只读审查无Critical/Important问题；当前工作区与使用HEAD原电机轴/头文件的本次提交组合均通过46例，暂存差异检查通过。
