@@ -167,3 +167,23 @@
 - 验证：重构前40例通过；新接口实现前检查因缺少FlashInit失败；重构后46例真实C转JS有界校准/归位检查、12例MOT2限位检查通过，改变读取地址的突变检查被拒绝。
 - Keil重新构建退出码2，45个C9555E/A9555E/R207许可证错误，未生成新固件、未烧录或实机验证。保留原有电机调参、motor.h格式改动和context原有删除，不混入本轮提交。
 - 独立只读审查无Critical/Important问题；当前工作区与使用HEAD原电机轴/头文件的本次提交组合均通过46例，暂存差异检查通过。
+
+## 2026-10-09 Keil许可证构建阻塞处理
+
+- 原构建调用 D:\Keil_v5，其MDK Standard 5.16授权检查返回C9555E/A9555E和R207(3): REGISTRY READ ERROR；该目录的ARMCC5.05和5.06连版本查询都会失败。
+- 本机实际注册的Keil 5.43位于 C:\Users\GT0061\AppData\Local\Keil_v5。该安装现有MDK Professional授权检查通过，且包含工程指定的ARM Compiler 5.05 update 2 (build 169)。本轮直接使用此安装，未修改许可证或注册表。
+- 后续构建应调用新版目录中的UV4.exe。robot.uvprojx的ARMCC5.05选择及robot_calibration.sct中的末2KB校准页预留保持。
+- 完整重建FT32F103目标通过：0错误、7警告，生成Objects/robot.axf及Objects/robot.hex。程序Code=36004、RO-data=456、RW-data=172、ZI-data=3260；ROM共36632字节。Keil退出码1表示只有警告，不是构建失败。
+- 7条警告来自sys.c的PwmInit隐式声明、tmf8806_shim.c的4处不可达语句、cs1237.c的2个未使用变量，本轮未修改相关固件代码。
+- 已核对新HEX各记录校验和，Flash数据最高结束地址（不含）为0x08008F18，小于校准页起始0x0803F800。构建日志为build_license_probe_codex.log；本轮未烧录和验证实机运动。
+- 当前ROM约35.8KB，已超过官方MDK-Lite的32KB限制，回退Lite不能完成当前工程构建。
+
+重复构建命令（PowerShell）：
+
+```powershell
+Start-Process -FilePath 'C:\Users\GT0061\AppData\Local\Keil_v5\UV4\UV4.exe' -ArgumentList @('-r','E:\Aproject\aibabel_robot\FT32F103\V7\robot.uvprojx','-t','FT32F103','-o','E:\Aproject\aibabel_robot\FT32F103\V7\build_license_probe_codex.log') -WindowStyle Hidden -Wait
+```
+
+官方资料：
+- Keil命令行构建与退出码：https://www.keil.com/support/man/docs/uv4/uv4_commandline.asp
+- MDK-Lite限制：https://www2.keil.com/limits
