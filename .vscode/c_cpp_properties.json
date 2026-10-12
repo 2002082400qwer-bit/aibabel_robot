@@ -1,0 +1,40 @@
+{
+    "configurations": [
+        {
+            "name": "FT32F103 ARMCC5", // 当前Keil目标对应的编辑器配置名称。
+            "compilerPath": "", // ARMCC5不使用GCC查询参数，头文件和宏在下方显式配置。
+            "intelliSenseMode": "windows-clang-arm", // 使用32位ARM目标的数据类型模型进行代码解析。
+            "includePath": [
+                "${workspaceFolder}/USER/Include", // 用户模块头文件。
+                "${workspaceFolder}/RTE/_FT32F103", // 当前目标生成的RTE组件头文件。
+                "${workspaceFolder}/RTE/Device/FT32F103VC", // 芯片配置及系统头文件。
+                "${env:LOCALAPPDATA}/Arm/Packs/FMD/FT32F1xx_DFP/1.0.3/Device/Include", // 厂家芯片寄存器头文件。
+                "${env:LOCALAPPDATA}/Arm/Packs/FMD/FT32F1xx_DFP/1.0.3/Device/StdPeriph_Driver/inc", // 厂家外设驱动接口。
+                "${env:LOCALAPPDATA}/Arm/Packs/ARM/CMSIS/5.8.0/CMSIS/Core/Include", // Cortex-M3内核接口。
+                "${env:LOCALAPPDATA}/Keil_v5/ARM/ARMCC_505u2/include" // 当前ARMCC5工具链的标准库头文件。
+            ],
+            "defines": [
+                "FT32F10X_HD", // FT32F103VC所属的大容量芯片系列。
+                "_RTE_", // 启用Keil运行环境组件配置。
+                "__USE_MATH", // 与Keil工程中的数学库宏保持一致。
+                "__CC_ARM=1", // 选择CMSIS中的ARMCC编译器接口。
+                "__ARMCC_VERSION=5050169", // 对应工程使用的ARMCC5.05更新2版本。
+                "__TARGET_ARCH_7_M=1", // Cortex-M3使用ARMv7-M架构。
+                "__TARGET_FPU_SOFTVFP=1" // Cortex-M3使用软件浮点实现。
+            ],
+            "cStandard": "c99", // C源码解析采用C99标准。
+            "cppStandard": "c++11", // C++头文件解析采用C++11标准。
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/USER", // 索引用户模块的声明和实现。
+                    "${workspaceFolder}/RTE", // 索引工程使用的RTE代码。
+                    "${env:LOCALAPPDATA}/Arm/Packs/FMD/FT32F1xx_DFP/1.0.3/Device", // 索引工程外的厂家驱动实现，支持跳转到FLASH_ErasePage等函数。
+                    "${env:LOCALAPPDATA}/Arm/Packs/ARM/CMSIS/5.8.0/CMSIS/Core/Include", // 索引内核接口定义。
+                    "${env:LOCALAPPDATA}/Keil_v5/ARM/ARMCC_505u2/include" // 索引标准库声明。
+                ],
+                "limitSymbolsToIncludedHeaders": false // 允许搜索外部驱动源码中的函数实现。
+            }
+        }
+    ],
+    "version": 4 // 微软C/C++扩展配置格式版本。
+}
