@@ -1,4 +1,5 @@
 #include "flash.h"
+#include "iap.h"
 
 #define FlashCalibrationFlashAddress 0x0803F800 // FT32F103VC最后一个2KB页，链接区已预留。
 #define FlashCalibrationWordCount 9 // 校准记录的32位字数量，共36字节。
@@ -18,11 +19,7 @@ void FlashInit(void)
  */
 static void FlashCalibrationReadRecord(u32 *record)
 {
-    u8 word; // 当前读取的32位字序号。
-
-    for( word = 0; word < FlashCalibrationWordCount; word++ ) {
-        record[word] = *(__IO u32 *)(FlashCalibrationFlashAddress + (u32)word * 4);
-    }
+    Flash_Read(FlashCalibrationFlashAddress, (u8 *)record, sizeof(u32) * FlashCalibrationWordCount);
 }
 
 /**
@@ -84,7 +81,7 @@ u8 FlashCalibrationRead(FlashCalibrationData *data, u8 motorMask)
  * 函数作用：写入校准记录，先写并读回数据，最后提交成功标记。
  * data：调用方已校验范围的校准数据；motorMask：启用电机组合，范围1至7。
  * 返回值：1表示保存和读回校验成功，0表示参数或擦写校验失败。
- * 所有电机停止后才调用；使用厂家驱动返回状态，任何擦写失败都会重新锁定Flash。
+ * 所有电机停止后才调用；复用IAP擦写接口，通过硬件状态及读回检查确认结果。
  */
 u8 FlashCalibrationWrite(const FlashCalibrationData *data, u8 motorMask)
 {
@@ -103,17 +100,18 @@ u8 FlashCalibrationWrite(const FlashCalibrationData *data, u8 motorMask)
     }
     record[8] = FlashCalibrationChecksum(record);
 
-    FLASH_Unlock();
+    /* IAP接口不返回操作结果，先清除历史错误，再检查状态及记录区是否擦空。 */
     FLASH_ClearFlag(FLASH_FLAG_EOP | FLASH_FLAG_PGERR | FLASH_FLAG_WRPRTERR);
-    if( FLASH_ErasePage(FlashCalibrationFlashAddress) != FLASH_COMPLETE ) {
-        FLASH_Lock();
-        return 0;
+    FLASH_Erase_OnePage(FlashCalibrationFlashAddress);
+    if( FLASH_GetStatus() != FLASH_COMPLETE ) return 0;
+    FlashCalibrationReadRecord(verify);
+    for( word = 0; word < FlashCalibrationWordCount; word++ ) {
+        if( verify[word] != 0xFFFFFFFF ) return 0;
     }
+    /* 每次只写4字节并检查状态，满足IAP写入长度要求，失败时停止后续写入。 */
     for( word = 1; word < FlashCalibrationWordCount; word++ ) {
-        if( FLASH_ProgramWord(FlashCalibrationFlashAddress + (u32)word * 4, record[word]) != FLASH_COMPLETE ) {
-            FLASH_Lock();
-            return 0;
-        }
+        FLASH_WriteWord(FlashCalibrationFlashAddress + (u32)word * 4, (u8 *)&record[word], 4);
+        if( FLASH_GetStatus() != FLASH_COMPLETE ) return 0;
     }
     FlashCalibrationReadRecord(verify);
     for( word = 1; word < FlashCalibrationWordCount; word++ ) {
@@ -122,11 +120,9 @@ u8 FlashCalibrationWrite(const FlashCalibrationData *data, u8 motorMask)
             return 0;
         }
     }
-    if( FLASH_ProgramWord(FlashCalibrationFlashAddress, FlashCalibrationMagic) != FLASH_COMPLETE ) {
-        FLASH_Lock();
-        return 0;
-    }
-    FLASH_Lock();
+    /* 数据读回完全一致后，最后通过IAP接口写入成功标记。 */
+    FLASH_WriteWord(FlashCalibrationFlashAddress, (u8 *)&record[0], 4);
+    if( FLASH_GetStatus() != FLASH_COMPLETE ) return 0;
     FlashCalibrationReadRecord(verify);
     return FlashCalibrationValidate(verify, motorMask);
 }

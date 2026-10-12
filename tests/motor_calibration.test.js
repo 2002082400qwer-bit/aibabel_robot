@@ -11,7 +11,9 @@ function calibrationExtract(source, name) {
     let body = source.slice(match.index + match[0].length, end - 1) // 被测函数体。
         .replace(/^\s*#(?:if.*|endif)\s*$/gm, '')
         .replace(/\*\(__IO\s+u32\s*\*\)\(([^;]+)\)/g, 'FlashReadWord($1)')
+        .replace(/sizeof\(u32\)/g, '4')
         .replace(/\((?:u8|u16|u32|unsigned long)(?:\s*\*)?\)/g, '')
+        .replace(/&record\[([^\]]+)\]/g, 'record.slice($1)')
         .replace(/\bFlashCalibrationData\s+(\w+);/g, 'let $1 = {MaxPulseNum:[0,0,0],PulseScale:[0,0,0]};')
         .replace(/->/g, '.')
         .replace(/&(calibration)\b/g, '$1')
@@ -45,9 +47,13 @@ function runMotorCalibrationTests(input) {
         function Mot1Init() {} function Mot2Init() {} function Mot3Init() {} // 电机硬件初始化由默认状态替代。
         function FLASH_Unlock() { io.locked = false; } // 模拟解锁。
         function FLASH_Lock() { io.locked = true; } // 模拟上锁。
-        function FLASH_ClearFlag() {} // 模拟状态清除。
-        function FLASH_ErasePage(address) { if (address !== 0x0803F800) throw Error('擦除区域错误'); io.erases++; if (io.eraseFails) return 1; io.words.fill(0xFFFFFFFF); return 0; } // 仅替代硬件擦除。
-        function FLASH_ProgramWord(address, value) { const index=(address-0x0803F800)/4; io.writes.push(index); if (io.failAt===index) return 1; if (!io.dropWrite) io.words[index]=value>>>0; return 0; } // 模拟写入失败和读回错误。
+        function FLASH_ClearFlag() { io.status=0; } // 模拟清除本次擦写前的状态。
+        function FLASH_GetStatus() { return io.status || 0; } // 返回硬件擦写状态。
+        function FLASH_ErasePage(address) { if (address !== 0x0803F800) throw Error('擦除区域错误'); io.erases++; if (io.eraseFails) { io.status=1; return 1; } if (!io.eraseDrops) io.words.fill(0xFFFFFFFF); return 0; } // 替代硬件擦除，覆盖显式错误和无状态的擦除失效。
+        function FLASH_ProgramWord(address, value) { const index=(address-0x0803F800)/4; io.writes.push(index); if (io.failAt===index) { io.status=1; return 1; } if (!io.dropWrite) io.words[index]=(io.words[index] & value)>>>0; return 0; } // 替代硬件编程，只允许位从1变0。
+        function FLASH_Erase_OnePage(address) { FLASH_Unlock(); FLASH_ClearFlag(); FLASH_ErasePage(address); FLASH_Lock(); } // 模拟IAP擦除及上锁；address为待擦除页地址。
+        function FLASH_WriteWord(address, buffer, bytes) { if (address % 4 || bytes % 4 || bytes > buffer.length * 4) throw Error('IAP写入地址或长度错误'); FLASH_Unlock(); FLASH_ClearFlag(); for (let offset=0; offset<bytes; offset+=4) FLASH_ProgramWord(address+offset,buffer[offset/4]); FLASH_Lock(); } // 模拟IAP写入；address为起始地址，buffer为转换后的32位字视图，bytes为字节数，offset为字节偏移。
+        function Flash_Read(address, buffer, bytes) { if (address % 4 || bytes % 4 || bytes > buffer.length * 4) throw Error('IAP读取地址或长度错误'); for (let offset=0; offset<bytes; offset+=4) buffer[offset/4]=FlashReadWord(address+offset); } // 替代芯片内存读取；address为起始地址，buffer为输出字视图，bytes为字节数，offset为字节偏移。
     ` + flashFunctions.map(name => calibrationExtract(input.flash || '', name)).join('\n') + functions.map(name => calibrationExtract(input.motor, name)).join('\n') + '; return { init: MotorInit, read: FlashCalibrationRead, write: FlashCalibrationWrite, load: MotorCalibrationLoad, save: MotorCalibrationSave, service: MotorCalibrationService, loaded: () => MotorCalibrationLoaded };'); // 联合运行真实Flash模块与电机调用逻辑。
     const failures = []; // 失败用例描述。
     let passed = 0; // 通过用例数量。
@@ -79,6 +85,9 @@ function runMotorCalibrationTests(input) {
     check('写入中断不留下成功标记', () => { const state=boot(); calibrated(state); state.io.failAt=5; state.control.service(); const next=boot(state.io); next.control.load(); equal(next.control.loaded(),0); equal(state.io.words[0],0xFFFFFFFF); equal(state.io.locked,true); });
     check('读回错误不提交成功标记', () => { const state=boot(); calibrated(state); state.io.dropWrite=true; state.control.service(); equal(state.io.words[0],0xFFFFFFFF); equal(state.io.locked,true); });
     check('擦除失败只尝试一次', () => { const state=boot(); calibrated(state); state.io.eraseFails=true; state.control.service(); state.control.service(); equal(state.io.erases,1); equal(state.io.writes,[]); equal(state.io.locked,true); });
+    check('擦除未生效时不能把旧记录当作本次保存成功', () => { const state=boot(); const data={MaxPulseNum:[7200,51000,2600],PulseScale:[400,1000,400]}; state.io.words=[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]; state.io.eraseDrops=true; equal(state.control.write(data,7),0); equal(state.io.writes,[]); equal(state.io.locked,true); });
+    check('成功标记写入失败时重启不能加载记录', () => { const state=boot(); calibrated(state); state.io.failAt=0; state.control.service(); equal(state.io.words[0],0xFFFFFFFF); equal(boot(state.io).control.loaded(),0); equal(state.io.locked,true); });
+    check('保存记录保持既有36字节格式和独立CRC样本', () => { const state=boot(); calibrated(state); state.control.service(); equal(state.io.words,[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]); });
     check('零换算系数不能保存', () => { const state=boot(); calibrated(state); state.motors[1].PulseNumPerMm=0; state.control.service(); equal(state.io.erases,0); });
     check('初始化恢复既有记录并锁定Flash而不擦除', () => { const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:false});equal(state.control.loaded(),1);equal(state.motors.map(motor=>motor.MaxPulseNum),[7200,51000,2600]);equal(state.io.erases,0);equal(state.io.locked,true); });
     check('读取失败保持调用者数据不变', () => { const state=boot();const data={MaxPulseNum:[1,2,3],PulseScale:[4,5,6]};equal(state.control.read(data,7),0);equal(data,{MaxPulseNum:[1,2,3],PulseScale:[4,5,6]}); });
