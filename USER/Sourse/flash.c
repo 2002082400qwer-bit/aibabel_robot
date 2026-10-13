@@ -50,10 +50,11 @@ static u32 FlashCalibrationChecksum(const u32 *record)
  */
 static u8 FlashCalibrationValidate(const u32 *record, u8 motorMask)
 {
-    if( (motorMask == 0) || (motorMask > 7) ) return 0;
-    if( record[0] != FlashCalibrationMagic ) return 0;
-    if( record[1] != (FlashCalibrationVersion + (u32)motorMask) ) return 0;
-    if( record[8] != FlashCalibrationChecksum(record) ) return 0;
+    if( (motorMask == 0) || (motorMask > 7) )                       return 0;
+    if( record[0] != FlashCalibrationMagic )                        return 0;
+    if( record[1] != (FlashCalibrationVersion + (u32)motorMask) )   return 0;
+    if( record[8] != FlashCalibrationChecksum(record) )             return 0;
+
     return 1;
 }
 
@@ -68,12 +69,16 @@ u8 FlashCalibrationRead(FlashCalibrationData *data, u8 motorMask)
     u8 axis; // 当前输出的电机序号。
 
     if( (data == 0) || (motorMask == 0) || (motorMask > 7) ) return 0;
+
     FlashCalibrationReadRecord(record);
+
     if( FlashCalibrationValidate(record, motorMask) == 0 ) return 0;
+
     for( axis = 0; axis < FlashCalibrationMotorCount; axis++ ) {
         data->MaxPulseNum[axis] = record[2 + axis * 2];
         data->PulseScale[axis] = record[3 + axis * 2];
     }
+
     return 1;
 }
 
@@ -91,38 +96,52 @@ u8 FlashCalibrationWrite(const FlashCalibrationData *data, u8 motorMask)
     u8 axis; // 当前打包校准数据的电机序号。
 
     if( (data == 0) || (motorMask == 0) || (motorMask > 7) ) return 0;
+
     for( word = 0; word < FlashCalibrationWordCount; word++ ) record[word] = 0;
+
     record[0] = FlashCalibrationMagic;
     record[1] = FlashCalibrationVersion + (u32)motorMask;
+
     for( axis = 0; axis < FlashCalibrationMotorCount; axis++ ) {
         record[2 + axis * 2] = data->MaxPulseNum[axis];
         record[3 + axis * 2] = data->PulseScale[axis];
     }
+
     record[8] = FlashCalibrationChecksum(record);
 
     /* IAP接口不返回操作结果，先清除历史错误，再检查状态及记录区是否擦空。 */
     FLASH_ClearFlag(FLASH_FLAG_EOP | FLASH_FLAG_PGERR | FLASH_FLAG_WRPRTERR);
     FLASH_Erase_OnePage(FlashCalibrationFlashAddress);
+
     if( FLASH_GetStatus() != FLASH_COMPLETE ) return 0;
+
     FlashCalibrationReadRecord(verify);
+
     for( word = 0; word < FlashCalibrationWordCount; word++ ) {
         if( verify[word] != 0xFFFFFFFF ) return 0;
     }
+
     /* 每次只写4字节并检查状态，满足IAP写入长度要求，失败时停止后续写入。 */
     for( word = 1; word < FlashCalibrationWordCount; word++ ) {
         FLASH_WriteWord(FlashCalibrationFlashAddress + (u32)word * 4, (u8 *)&record[word], 4);
         if( FLASH_GetStatus() != FLASH_COMPLETE ) return 0;
     }
+
     FlashCalibrationReadRecord(verify);
+
     for( word = 1; word < FlashCalibrationWordCount; word++ ) {
         if( verify[word] != record[word] ) {
             FLASH_Lock();
             return 0;
         }
     }
+
     /* 数据读回完全一致后，最后通过IAP接口写入成功标记。 */
     FLASH_WriteWord(FlashCalibrationFlashAddress, (u8 *)&record[0], 4);
+
     if( FLASH_GetStatus() != FLASH_COMPLETE ) return 0;
+
     FlashCalibrationReadRecord(verify);
+
     return FlashCalibrationValidate(verify, motorMask);
 }

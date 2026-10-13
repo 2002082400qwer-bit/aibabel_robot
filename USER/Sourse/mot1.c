@@ -11,8 +11,8 @@
 #define c_PulseScaleFactor 10				//10倍
 #define c_AngleScaleFactor 10					//10倍
 #define c_RadianScaleFactor 10				//10倍
-#define c_DefaultTotalPulseNum	3600	//总的脉冲数
-#define c_DefaultPulseNumPerAngle 20*c_PulseScaleFactor	//每度对应的脉冲数
+#define c_DefaultTotalPulseNum	3600	//初始化脉冲数，后续会根据标定结果覆盖
+#define c_DefaultPulseNumPerAngle 20*c_PulseScaleFactor	//初始化每度对应的脉冲数，后续会根据标定结果计算后覆盖
 #define c_MoveTimeOver 20000					//20s,马达不转无脉冲输出时间
 #define Mot1TriggerAdc 2800
 //-----------------------------------------------------------------
@@ -287,17 +287,13 @@ void Mot1VelocityControl(void)
 		}	
 		else Mot1.CurAngle = 0;
 		
-		
-		
 		encode_count = Mot1ReadEncode()*(1000/C_PID_RATE);
 		Mot1.PulseNumPerMin = encode_count*60;
 		encode_count = (u32)(encode_count*c_RadianScaleFactor*c_PulseScaleFactor);
 		if( encode_count != 0 )	Mot1.CurVelocity = (u32)(encode_count/Mot1.PulseNumPerAngle);
 		else Mot1.CurVelocity = 0;
 				
-		
-		
-		        if( (Mot1.TarVelocity == 0) || (Mot1.TarPulseNum <= Mot1.PulseNum) ) {
+		if( (Mot1.TarVelocity == 0) || (Mot1.TarPulseNum <= Mot1.PulseNum) ) {
             Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
         }
         else {
