@@ -1,0 +1,214 @@
+# PID 修改记录
+
+## 2026-10-08 MOT1 固定最大 PWM 测试
+
+- 按用户要求，MOT1 临时采用与 MOT2 相同的满占空比输出方式，最大值为 `c_MaxPwmDuty = 4800`。
+- `Mot1EnablePidControl` 在有效运动启动时立即输出最大 PWM；`Mot1VelocityControl` 在写入 PWM 前按目标脉冲是否到达，把实际输出固定为 4800 或 0。
+- 原 PID 计算、速度反馈及末端减速计算保留，但测试期间速度参数（包括 0）和 PID 结果不再调节实际 PWM。脉冲停机、霍尔刹停、主动停止及复位超时仍按原逻辑关闭 PWM。
+- 电机源码仅增加上述两行带中文注释的输出语句，保持 GB2312/CRLF；MOT2、MOT3 源码未改变。
+- 验证：`tests/mot1_max_pwm.test.js` 复用既有函数提取器，执行启动、不同速度、末端、脉冲停机、两端霍尔、主动停机和零行程等 15 个有界分支用例。修改前 6 例失败，修改后 15 例通过；独立只读审查复现结果，未发现 Critical/Important 问题。该检查不代替原生 C 编译及实机。
+- Keil 本轮构建仍因 `C9555E` / `R207(3): REGISTRY READ ERROR` 许可证错误失败（退出码 2），未生成新固件，尚未上板测试。
+- 本次仅提交满 PWM 测试改动及相关测试、记录，保留用户原有未提交改动。
+
+## 2026-10-08 MOT2 下限位确认后立即关闭 PWM
+
+- 用户反馈：升降电机到下限位后仍持续驱动约 0.3 秒并产生噪声，上限位没有此现象。
+- 原因：`Mot2ActionHandle` 的下行霍尔分支在确认触发后，仍等待 `DelayTimer >= c_1s` 才关闭 PWM；`c_1s` 为 1000 毫秒，等待期间仍保持运动输出。
+- 修改：取消该额外延时，下霍尔确认后直接记录 `hall_backward_brake`、调用 `Mot2DisablePidControl` 关闭 PWM，并进入 `motor_brake` 等待停稳。
+- 保留既有约 20 毫秒霍尔消抖、脉冲停机及首次寻限位的脉冲绕过、复位超时和上限位行为；电机源码保持 GB2312/CRLF。
+- 验证：新增 `tests/mot2_limit_stop.test.js`，提取源码中的实际控制函数进行有界分支行为检查。修改前 6 个用例因延迟关闭 PWM 失败，修改后 12 个用例通过；覆盖首次下行、标定回程、普通下行、测速周期到期、上限位、脉冲停机和霍尔消抖边界。该检查不代替 C 编译及实机验证，也不模拟整数溢出和硬件时序。
+- Keil 构建退出码为 2，受既有许可证错误 `C9555E` / `R207(3): REGISTRY READ ERROR` 阻断，未生成新固件，尚未实机验证。
+- 本次提交仅包含下限位修正、相关测试及记录，保留用户原有未提交调参和其他改动。
+
+## 2026-09-24
+
+- 核对确认电机1、2、3的源文件中均已有增量式速度 PID，按 50 ms 周期根据速度误差及差分项调节 PWM；本次无需重复添加 PID 算法。
+- 按用户确认，电机2保持 `Motor2Enable = 0`，保留其 PID 代码，不纳入初始化和周期服务。
+- 数值范围说明：速度输入为 `u16`、PID 中间结果为 `int32_t`、PWM 输出范围为 0～4800、系数缩放为 100 且 `Ki = 2` 时，考虑输出累加器余量，避免有符号 32 位溢出的保守约束为 `2*Kp + 4*Kd + Ki <= 32761`。在另一增益为 0 时，单独上限为 `Kp = 16379` 或 `Kd = 8189`；这是整数溢出上限，不是建议的调参值，稳定性上限仍由电机和负载决定。
+- 本次未修改电机控制源码；记录现有实现与数值边界分析。
+
+## 2026-09-24 终点停顿修正
+
+- 上位机运行时，Mot1、Mot3 原先仅在剩余脉冲不少于 50 时保持 2500 的最低 PWM；进入末段后下限撤除，可能造成带载停顿。
+- 现在目标脉冲未达到且目标速度非零时持续保持 2500；复位流程及达到目标或霍尔触发后的关断逻辑不变。
+- Mot1 的脉冲目标刹车优先于左霍尔限位；若实机仍提前停止，需区分脉冲刹车与霍尔刹车。实机效果尚待下载固件后观察。
+
+## 2026-09-24 工作区文件核对
+
+- 复核磁盘文件时，Mot1 已保留上位机 2500 最低 PWM 全程生效逻辑；Mot3 工作区内容移除了该宏和分支，现已恢复到复位下限 1500、上位机下限 2500 的分支逻辑。
+- 其余未提交的 PID 系数、复位速度和格式改动保持原状；本次只提交说明和宏注释。实际马达运行仍需下载固件后确认。
+
+## 2026-09-24 启用电机比例系数调整
+
+- 根据实机反馈，Mot1 右转从左端约三分之一处遇阻，接近右限位时又有机身抖动。用户要求不做电机方向或行程位置的针对性控制。
+- 将启用的 Mot1、Mot3 的速度增量式 PID 比例系数 Kp 从当前工作区 150 统一调至 250；Mot2 保持禁用且参数不变。Ki、Kd、最低 PWM 和限位停机逻辑不变。
+- 增量式 PID 的 P 项只对误差变化产生增量，无法保证持续卡滞时 PWM 一定升到最大值；末端抖动可能对增益敏感，需下载固件后观察。
+
+## 2026-09-24 启用电机积分系数调整
+
+- 用户确认 Mot1 的右转对应 Mot1MoveBackward；同一路段在复位速度 300 时卡住，速度 400 可通过。持续卡住时增量式 PID 的 P、D 不会持续增加输出，原 Ki=2 的累加速度较慢。
+- 将启用的 Mot1、Mot3 的 Ki 从 2 统一调到 10；Kp、Kd、最低 PWM、方向和限位逻辑保持当前值。Mot2 仍禁用且参数不变。
+- 当前系数下持续速度误差为 100 时，积分项约每 50 ms 增加 10 个 PWM 计数，原为 2 个。实际是否能越过卡点、是否加重终点抖动仍需下载固件观察。
+
+## 2026-09-24 Ki 试机回退
+
+- 用户下载 Ki=10 后反馈 Mot1 复位第三步往右回中点，在行程中途反复停走；并非只发生在剩余 50 个脉冲的末段降速区。
+- 将启用的 Mot1、Mot3 的 Ki 从 10 恢复为 2。保留已有 Kp、Kd、PWM 下限及复位速度改动，不叠加新的参数试验。
+- 复位流程不使用上位机 2500 PWM 下限，PID 输出可降至 0；停走现象与输出反复跌破维持转动所需 PWM 相符，但仍需现场 PWM 和速度记录确认波形。
+
+## 2026-09-24 复位与运行 Ki 分开试调
+
+- 用户补充实机对比：Ki=10 时，上位机右转可越过左起约三分之一的卡点，但右限位抖动加重；复位第三步在行程中途反复停走。
+- 两路启用电机采用相同规则：复位保留 Ki=2，上位机运行先试 Ki=4。Mot2 保持禁用且参数不变；Kp、Kd、最低 PWM、方向、限位和用户原有复位速度改动不变。
+- 上位机持续速度误差为100时，积分项约每50ms增加4个PWM计数，原为2个；Ki=4是否能通过卡点、是否减轻限位抖动仍需实机观察。
+
+## 2026-09-24 Mot1 复位回中点停走及右限位冲击
+
+- 用户实测：复位第三步从物理左侧向右回中点仍反复抖动；复位找右限位和上位机右转到右限位均明显抖动；上位机右转已能越过左起约三分之一阻力区。
+- 代码核对：Mot1 复位第三步原先没有最低 PWM，闭环输出可跌至 0；上位机运动在最后 50 脉冲把目标速度切至 50，但实际 PWM 仍全程保底 2500，末段无法真正减小输出。以上是代码机制，实际抖动原因仍需现场波形验证。
+- 只调整 Mot1：复位第三步中段最低 PWM 设为 2500；上位机长行程和复位第三步在剩余 300 脉冲内逐步降低目标速度、PWM 下限，并设置渐降的 PWM 上限；其余运动保留已有控制。
+- 复位第一步找右限位时位置是人工假值，不能依据目标剩余脉冲可靠地提前减速，保留当前复位速度；增加物理右转时 Hall1 原始 ADC、Reset 和 Step 的串口记录，供下一轮判断霍尔信号是否可用于提前减速。
+- 参数与硬件效果尚未上板验证；Mot3、Mot2 和用户未提交的 Mot1 Kd/复位速度、格式改动均未纳入本次提交。
+## 2026-09-24 末端回拉补偿（位置残差二次修正）
+
+- 用户反馈：末端无论怎么调都会残留几度偏差，问能不能在停稳后再往目标方向拉回来一点。
+- 机制说明：当前运动是“脉冲到达就关 PWM”的开环定位，关断后的机械惯性会让实际位置冲过目标，而位置和角度是按编码器脉冲累计的，所以偏差会直接体现在上位机角度上。既然偏差可测，就能在停稳后按残差再补一小段。
+- 新增 Mot1、Mot3 各一套“末端回拉补偿”：脉冲制动停稳并更新 CurPosition/CurAngle 后，计算目标位置与记录位置的残差；残差在死区内不动，在死区到上限之间则用低速反向回拉，一次目标最多回拉 2 次。
+- 参数：Mot1 死区 1.0 度、单次上限 5.0 度；Mot3 死区 1.0 度、单次上限 6.0 度；回拉目标速度均为 50；单次回拉最长 2000 ms，超时按普通制动收尾，避免机构卡住时一直停在半路。
+- 只对脉冲制动生效；霍尔限位由开关定位，不做回拉。复位找行程的 Step0/Step1 不参与，上位机运行和复位回中 Step3 参与。
+- 回拉速度限制：Mot1 回拉沿用运行段 PWM 下限，并在后方半程按 300 脉冲窗口的一半开始收下限；Mot3 回拉统一改用复位级最低 PWM 1500，比上位机运行的 2500 更慢，目的是减小二次过冲。
+- 回拉次数按本次目标累计，新的普通运动开始时清零；若现场出现来回找位置，可把 Mot1PosCorrMaxTimes/Mot3PosCorrMaxTimes 改成 1，或把 Mot1PosCorrEnable/Mot3PosCorrEnable 改成 0 做对照试验。
+- 需要注意：回拉依赖“编码器脉冲能代表机构实际位置”。如果偏差来自齿轮间隙、霍尔区不计数或机械打滑，回拉会把账面误差补上而机械位置未必同步改善；Mot3 之前出现的十几度偏差超过本次上限，不会触发回拉，仍需单独查计数或标定问题。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次补偿代码与记录，工作区里用户未提交的 PID 调参保持不变。
+
+## 2026-09-24 清理死代码并合并复位/运行积分系数
+
+- 用户指出按当前方案没必要再保留复位/运行两套积分系数，确认无用的宏和函数一并清理。
+- 合并 Ki：删除 Mot1VelocityResetKi / Mot3VelocityResetKi，积分项统一使用 Mot1VelocityKi / Mot3VelocityKi。工作区实际取值为 Mot1 Ki=2、Mot3 Ki=4，因此复位段等效值由 Mot1 的 4 变为 2、Mot3 的 2 变为 4；若复位段表现变差，只改这一个宏即可。
+- 删除确认无引用的死代码：mot1.c/mot3.c 的 c_AngleScaleFactor（mot3.c 另有 c_SpeedScaleFactor）、Mot1SetTargetPosition / Mot3SetTargetPosition 函数、Mot1ActionHandle / Mot3ActionHandle 里注释掉的 ErrPulseNum 调试行。
+- 删除只赋初值、从未使用的结构体成员：Motor1St / Motor3St 的 ErrPulseNum 与 TarAngle，Move1St / Move3St 的 SpeedB。注意 mot1.h / mot3.h 被 .git/info/exclude 排除，不在本仓库版本管理内，这两处改动只保留在磁盘上。
+- 保留仍在使用的项：Kp/Kd、Mot1PidStartDuty、Mot1PidCruiseDuty、最低 PWM、末段渐降窗口、MotXPosCorr 回拉参数；保留 motor.h 中未被引用的 C_MinimumTarPulseNum、Mot1MaxAngle、Mot2MaxDistance、Mot3MaxAngle 以及限位开关引脚宏，后一组属于硬件接线记录，需要再删可以单独处理。
+- 本次只做删除与合并，未引入新逻辑；仍依赖“脉冲到位关 PWM + 停稳后残差回拉”的现有方案。未编译（本机 Keil 命令行受 license 限制）、未上板验证。提交只含本次清理，工作区里未提交的 PID 调参保持不变。
+
+## 2026-09-24 保留 ErrPulseNum / TarAngle / SpeedB 三个成员
+
+- 用户说明这三个结构体成员是留给后续功能用的，当前虽然还没被读取，但要保留、不能删。
+- 已把 mot1.h / mot3.h 恢复成参照工程版本（两个头文件现在与参照工程逐字节一致），重新包含 Motor1St / Motor3St 的 ErrPulseNum、TarAngle 以及 Move1St / Move3St 的 SpeedB。
+- mot1.c / mot3.c 的 Mot1Init / Mot3Init 里同步补回 MotX.ErrPulseNum = 0 与 MotX.TarAngle = 0 两条初始化语句，保持成员一上电就是确定值。
+- 上一轮一并删掉的 Mot1SetTargetPosition / Mot3SetTargetPosition 两个未被调用的 setter、c_AngleScaleFactor / c_SpeedScaleFactor 两个宏本次没有恢复；后续要用可以再补回来。
+- 另：adc.c、sys.c、cs1237.c、cs1237.h 与参照工程只差缩进和空行，已还原成参照工程版本。执行前已把整个工程（不含 Objects/Listings）备份到 E:\Aproject\aibabel_robot\FT32F103\V7_backup_20260924。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次恢复的成员和初始化语句，工作区里未提交的 PID 调参保持不变。
+
+## 2026-09-24 把上轮清理删掉的代码全部加回
+
+- 用户要求：上一轮清理（提交 b901540）删掉的宏、函数、注释全部加回来，包括复位/运行两套积分系数。
+- mot1.c / mot3.c 已恢复：c_AngleScaleFactor 宏（mot3.c 另有 c_SpeedScaleFactor）、Mot1SetTargetPosition / Mot3SetTargetPosition 两个 setter 函数、Mot1ActionHandle / Mot3ActionHandle 里注释掉的 ErrPulseNum 调试两行。
+- 积分系数恢复为两套：Mot1VelocityKi 与 Mot1VelocityResetKi（工作区取值为 2 和 4）、Mot3VelocityKi 与 Mot3VelocityResetKi（工作区取值为 4 和 2），积分项恢复为 ((MotX.Reset != 0) ? MotX VelocityResetKi : MotXVelocityKi) 的三元选择，即复位段与运行段重新使用不同 Ki。
+- 结构体成员 ErrPulseNum / TarAngle / SpeedB 与 MotXInit 中的初始化语句在上一轮已恢复；本次把 Mot3Init 里 ErrPulseNum 与 BrakeType 的顺序也对齐成清理前的原始顺序，两个源文件现在与“清理前备份”逐字节一致。
+- 提交内容按 HEAD 基线重建，等价于恢复成清理前（提交 a8450ba）的源文件内容；工作区里用户的 PID 调参（Kp/Ki/最低 PWM/复位速度等）仍保持未提交状态，与之前一致。
+- 顺带核对：两工程当前只剩 robot.uvoptx、motor.h、mot1.c、mot2.c、mot3.c、motor.c 六个文件不同。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证。
+
+## 2026-09-24 末端回拉补偿力量改小
+
+- 用户实机反馈：回拉补偿给的力太大，拉回之后反而比原来偏得更多。
+- 原因判断：原来的回拉运动沿用正常运行的最低 PWM（Mot1 用 2500、Mot3 用复位级 1500），驱动力和造成原始过冲时差不多，所以回拉自己又会带出一次制动过冲，越拉越偏。
+- 本次修改：给回拉运动单独加“小力窗口”，并按比例回拉。
+- 每次只回拉残差的一部分：Mot1PosCorrRatioPercent / Mot3PosCorrRatioPercent = 50，即一次只走残差的一半，留出停机制动继续冲的余量；配合原有的最多 2 次判断，逐步逼近目标。
+- Mot1 回拉 PWM 限制为 Mot1PosCorrMinimumPwm 1500 ~ Mot1PosCorrMaximumPwm 2000（原来不低于 2500）。
+- Mot3 回拉 PWM 限制为 Mot3PosCorrMinimumPwm 1300 ~ Mot3PosCorrMaximumPwm 1600（原来不低于 1500 且没有上限）。
+- 回拉改成走中间目标（当前位置 ± 一半残差），走完后把 TarPosition 改回真正的目标位置，保证下一次残差判断仍以真正目标为准；死区、次数上限、2000 ms 超时逻辑不变。Mot1 原来的“回拉时按半程收减速窗口”的临时分支已删除，避免和新的小力窗口叠加。
+- 现场调参：回拉完全不动说明力度不够，把 MotXPosCorrMinimumPwm/MaximumPwm 调大；仍然冲过目标就把 MotXPosCorrRatioPercent 调小（如 30），或把 MaximumPwm 再降。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次回拉参数与算法改动，工作区其余调参不变。
+
+## 2026-09-24 Mot3 回拉范围放宽 + 回拉无效保护
+
+- 用户反馈 Mot3 偏移仍然很厉害。核对参数发现原因：Mot3 原回拉上限只有 6.0 度，十几度的偏差直接按“异常”跳过，等于根本没有参与回拉。
+- 放宽可修正范围：Mot3PosCorrMaxAngle 由 60（6.0 度）改为 250（25.0 度）；Mot1PosCorrMaxAngle 由 50（5.0 度）改为 150（15.0 度）。
+- 回拉次数 Mot1PosCorrMaxTimes / Mot3PosCorrMaxTimes 由 2 改为 4，配合“每次只走残差一半”的策略逐步逼近；残差小于死区（1.0 度）会提前结束，不会多动作。
+- 新增“回拉无效保护”：记录上一次回拉后的残差，若这次残差没有变小（机构卡住）或反而变大（拉过头），直接结束本轮回拉，避免越拉越偏。对应新增 MotXPosCorrLastResidual 变量与 wasCorr 判断。
+- 用户自行把 Mot1 回拉力度调成 Mot1PosCorrMinimumPwm 800 / Mot1PosCorrMaximumPwm 1500，工作区里保留该设置不变。
+- 现场调参：Mot3 偏差超过 25 度就继续加大 Mot3PosCorrMaxAngle；回拉完全不动就把 Mot3PosCorrMinimumPwm/MaximumPwm 往上抬。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次参数与保护逻辑改动。
+
+## 2026-09-24 回拉改成“提前断电+靠滑行落地”（Mot3 回中只到 22 度）
+
+- 用户实测：Mot3 复位第三步回中后只到 22 度（期望 32.5 度），差约 10.5 度，说明上一版“按残差一半回拉”几乎没有产生净位移。
+- 原因模型：回拉运动切断 PWM 后机构还会继续滑行一段距离 c，若指令回拉量的一半与 c 相当，净位移接近 0，怎么拉都停在原地。单纯按比例缩小回拉量解决不了这个情况。
+- 修改：回拉量改为“残差的一半 − 预计滑行量”，即提前断电，让滑行段正好把剩下的一半走完。
+  - Mot1PosCorrCoastAngle = 10（1.0 度）、Mot3PosCorrCoastAngle = 20（2.0 度）。
+  - 若算出来不足 1 个脉冲就按 1 个脉冲走；仍然受 1.0 度死区、“没变好就停手”保护和 2000 ms 超时约束。
+- Mot3 回拉力度窗口由 1300~1600 调整为 1000~2200：下限更低以减小滑行速度，上限抬高以保证静摩擦大时还能起步。Mot1 保持用户自设的 800~1500。
+- 现场调参：回拉后仍差得多 → 加大 MotXPosCorrCoastAngle（滑行比预计更远）；回拉完全不动 → 抬高 MotXPosCorrMinimumPwm；回拉冲过目标 → 减小 MotXPosCorrCoastAngle。
+- 本次未编译（本机 Keil 命令行受 license 限制）、未上板验证；提交只含本次回拉算法与 Mot3 窗口改动。
+
+
+## 2026-10-09 首次自检保存与后续快速归位
+
+- 首次三路自检和归位全部成功后，将行程脉冲及换算系数写入内部 Flash 模拟 EEPROM；任一路故障或未停止时不保存。
+- 有效校准启动：MOT1 找左限位后按历史半行程回中；MOT2 只找下限位；MOT3 找原反向运动的零点侧限位（现有 UpHall 接口）后按历史半行程回中。保留 Reset 门禁，归位完成前不接受普通任务。
+- 记录共 36 字节，含版本、启用电机组合、三路标定和 CRC32。数据先写并读回校验，最后写有效标记；后续启动不重复擦写，损坏记录回退完整自检。
+- 使用 FT32F103VC 末 2KB 页 0x0803F800～0x0803FFFF。robot_calibration.sct 明确限制程序 Load/RO 区域为 0x3F800，robot.uvprojx 使用该链接脚本。
+- 三路电机均启用。寻基准和对侧标定要求对应霍尔制动；MOT1/MOT3 回中成功时两端霍尔都应未触发；最终归位超时关闭 PWM。MOT2 实测换算系数截断为零时拒绝标定。
+- 官方 EEPROM demo 使用外接 FT24C02A；经用户确认板上无此器件，本轮采用内部 Flash。Flash 页大小及擦写 API 按本地 FMD 官方 DFP 1.0.3 核对。
+- 验证：40 个有界 C 转 JS 保存/归位用例和 12 个 MOT2 下限位回归用例通过；独立审查的 12 个真实动作处理与归位组合通过。此类检查不代替原生 C 编译、Flash 时序或实机运动验证。
+- Keil 构建仍被 C9555E/A9555E/R207 许可证错误阻断（44 个错误），无新固件，未烧录。全片擦除会清掉校准记录，下一次启动需重新自检。
+
+- 补充官方示例核对：FLASH_RAM 仅演示 DMA 将 Flash 常量复制到 RAM；同目录 Program 才演示 Flash 解锁、擦页、写字、锁定和读回检查，本轮擦写流程与其一致。
+- 最终检查同时运行工作区及本次提交代码的40例校准测试，覆盖原版本位置补偿依赖；两版本均通过，MOT2限位12例通过。
+
+## 2026-10-09 Flash校准存储模块拆分
+
+- 新增 USER/Sourse/flash.c 和 USER/Include/flash.h。Flash存储初始化、内存映射读取、记录格式、CRC校验、擦页写字及读回验证集中在Flash模块，模块不依赖电机全局状态。
+- 公开 FlashInit(void)、FlashCalibrationRead(FlashCalibrationData *data, u8 motorMask)、FlashCalibrationWrite(const FlashCalibrationData *data, u8 motorMask)；数据结构按MOT1/MOT2/MOT3顺序保存行程与换算系数，mask位0至2对应三路启用状态，读写返回1成功、0失败。
+- FlashInit只恢复写保护，不擦除原有数据；读取失败不改输出数据；写入仍先写数据和CRC，读回通过后最后写成功标记，擦写失败重新锁定。
+- motor.c保留电机参数范围及换算关系检查、校准数据整理/应用和首次成功后保存一次的时机，通过上述接口访问Flash；MotorInit自动调用FlashInit并加载校准。
+- 记录地址0x0803F800、36字节版本1格式及CRC算法保持兼容，原有首次自检和重启归位流程保持；Keil工程已加入flash.c，末2KB预留链接脚本保持。
+- 验证：重构前40例通过；新接口实现前检查因缺少FlashInit失败；重构后46例真实C转JS有界校准/归位检查、12例MOT2限位检查通过，改变读取地址的突变检查被拒绝。
+- Keil重新构建退出码2，45个C9555E/A9555E/R207许可证错误，未生成新固件、未烧录或实机验证。保留原有电机调参、motor.h格式改动和context原有删除，不混入本轮提交。
+- 独立只读审查无Critical/Important问题；当前工作区与使用HEAD原电机轴/头文件的本次提交组合均通过46例，暂存差异检查通过。
+
+## 2026-10-09 Keil许可证构建阻塞处理
+
+- 原构建调用 D:\Keil_v5，其MDK Standard 5.16授权检查返回C9555E/A9555E和R207(3): REGISTRY READ ERROR；该目录的ARMCC5.05和5.06连版本查询都会失败。
+- 本机实际注册的Keil 5.43位于 C:\Users\GT0061\AppData\Local\Keil_v5。该安装现有MDK Professional授权检查通过，且包含工程指定的ARM Compiler 5.05 update 2 (build 169)。本轮直接使用此安装，未修改许可证或注册表。
+- 后续构建应调用新版目录中的UV4.exe。robot.uvprojx的ARMCC5.05选择及robot_calibration.sct中的末2KB校准页预留保持。
+- 完整重建FT32F103目标通过：0错误、7警告，生成Objects/robot.axf及Objects/robot.hex。程序Code=36004、RO-data=456、RW-data=172、ZI-data=3260；ROM共36632字节。Keil退出码1表示只有警告，不是构建失败。
+- 7条警告来自sys.c的PwmInit隐式声明、tmf8806_shim.c的4处不可达语句、cs1237.c的2个未使用变量，本轮未修改相关固件代码。
+- 已核对新HEX各记录校验和，Flash数据最高结束地址（不含）为0x08008F18，小于校准页起始0x0803F800。构建日志为build_license_probe_codex.log；本轮未烧录和验证实机运动。
+- 当前ROM约35.8KB，已超过官方MDK-Lite的32KB限制，回退Lite不能完成当前工程构建。
+
+重复构建命令（PowerShell）：
+
+```powershell
+Start-Process -FilePath 'C:\Users\GT0061\AppData\Local\Keil_v5\UV4\UV4.exe' -ArgumentList @('-r','E:\Aproject\aibabel_robot\FT32F103\V7\robot.uvprojx','-t','FT32F103','-o','E:\Aproject\aibabel_robot\FT32F103\V7\build_license_probe_codex.log') -WindowStyle Hidden -Wait
+```
+
+官方资料：
+- Keil命令行构建与退出码：https://www.keil.com/support/man/docs/uv4/uv4_commandline.asp
+- MDK-Lite限制：https://www2.keil.com/limits
+
+## 2026-10-09 停稳位置日志与可信启动直接回中
+
+- 用户最终选择“停稳后保存，正常断电直接回中；运动中断电重新寻限位”，替代绝对位置传感器方案；断电期间机构不得被外力移动，增量编码器不能检测断电期间位移。
+- Flash存储初始化、读取、追加与失效均位于flash.c/h，公开FlashMotorPositionRead、FlashMotorPositionWrite、FlashMotorPositionInvalidate；校准版本1、36字节和0x0803F800地址兼容已有固件。
+- 位置页0x0803F000独占2KB，共102条20字节记录。每条保存版本/启用组合、MOT1/MOT3脉冲坐标、CRC32，数据读回正确后最后写成功标记；最新占用条无效或未完成时不得使用更旧坐标。
+- 六个MotXMoveForward/Backward入口在使能PID前同步失效旧位置标记，任何一路首次开始运动都先完成此步骤；失败则禁止启动并报告MotorFault，同轮多轴运动不再写Flash。
+- 全部启用电机归位完成、En=1、Action=stop、无故障且无待任务后追加一次位置。一直停止不重复写，每停止周期最多一次尝试；日志页满才在全部停稳时擦位置页，不擦校准页。
+- 独立审查发现并修复“Flash标记实际写成功但驱动返回失败”的边界：追加尝试后无条件清RAM Dirty，下次运动重新检查并失效最新记录；SaveAttempted保持1避免本周期重复写。
+- MotorInit在校准有效后加载位置，检查坐标范围并恢复CurPosition/CurAngle。可信位置时MOT1/MOT3跳过case0，按当前位置选择正向或反向直达MaxPulseNum/2，已经在中点则保持PWM关闭；最终归位仍保留限位和超时保护。MOT2始终回最低限位。
+- 位置空白、失效、损坏、越界或运动中断电时，已有校准仍有效，MOT1/MOT3只寻一次零点侧限位再回中；校准无效才重新完整往返自检。
+- robot_calibration.sct和robot.uvprojx程序区限制改为0x3F000（252KB），预留最后4KB两页。当前代码与选择性提交的HEAD原轴代码组合分别通过51例位置检查、46例校准检查；原MOT2限位12例通过。新测试可用node tests/motor_position.test.js运行（当前环境通过functions.exec运行）。
+- 独立只读审查无未修复Critical/Important。使用AGENTS指定新版Keil完整重建通过0错误7个已有警告，生成Objects/robot.axf和Objects/robot.hex。Code=37824、RO-data=456、RW-data=176、ZI-data=3256；HEX所有行校验和通过，Flash最高结束地址0x08009638，小于位置页0x0803F000。
+- 最终构建日志build_motor_position_final_codex.log时间晚于最后逻辑修复；旧D:\Keil_v5许可错误日志不作为最终结果。未烧录，未验证实际机械运动或擦写中断电的硬件时序。
+- 保留用户原有PID、方向、速度调参及motor.h排版，选择性提交本次存储/启动功能；context原有删除保持在工作区。
+
+## 2026-10-09 保存直接回中版本并恢复寻零限位启动
+
+- 按用户要求，先将完整工作区（含现有PID、方向、速度调参）保存为提交5c8f85d，建立本地标签backup-position-direct-center-20261009。对应HEX、AXF、编译日志及SHA256保存于version_backups/20261009_position_direct_center；三份备份文件校验一致。
+- 当前恢复MOT1/MOT3先执行case0寻找零点侧限位，确认霍尔后用历史半行程回中；MOT2只回最低点限位。首次完整自检及成功保存校准保持，已有有效校准不重新往返自检。
+- 撤回当前位置日志、启动前失效和跳过case0直接回中功能。Flash读写初始化仍在flash.c/h，原36字节版本1校准与地址0x0803F800兼容；Keil程序区恢复0x3F800，末2KB保留校准页。所有现有PID、GPIO方向和运行速度保持本轮备份状态。
+- 原46个校准、12个MOT2限位检查通过；另执行真实三轴启动状态机3个场景，确认动作顺序MOT1反向0→正向半行程、MOT2反向0、MOT3反向0→正向半行程，最终Reset=0/En=1。
+- 新版Keil完整重建0错误7已有警告，Code=36004、RO-data=456、RW-data=172、ZI-data=3260，生成当前Objects/robot.hex。HEX校验通过，Flash最高结束地址0x08008F18，小于校准页；日志build_limit_home_restore_final_codex.log。未烧录，未实机验证。
+- 如以后重新烧录停稳位置直接回中备份，应先失效或擦除旧位置页0x0803F000，避免回退固件运行后旧坐标不再可信；校准页可保留。
+- 独立审查确认三轴其他函数、宏、PID/方向/速度均与备份一致；61项独立检查通过，无Critical/Important。

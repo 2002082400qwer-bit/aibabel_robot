@@ -1,0 +1,12 @@
+; 程序及只读数据限制在前254KB，最后2KB留给电机校准记录。
+LR_IROM1 0x08000000 0x0003F800 {
+  ER_IROM1 0x08000000 0x0003F800 {
+    *.o (RESET, +First)
+    *(InRoot$$Sections)
+    .ANY (+RO)
+  }
+  ; 使用工程原有48KB RAM配置。
+  RW_IRAM1 0x20000000 0x0000C000 {
+    .ANY (+RW +ZI)
+  }
+}
