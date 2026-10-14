@@ -248,7 +248,7 @@ void Mot3SetTargetPosition( u16 num )
 	Mot3.TarPosition = num;
 }	
 /**
- * 函数作用：每周期更新速度、角度和PWM；普通定位及回中使用半程减速窗口，寻限位不提前减速；有效运动限制最低PWM，停止输出0，无传入参数。
+ * 函数作用：每周期更新速度、角度和PWM；寻位、回中及普通定位均按剩余目标脉冲减速；有效运动限制最低PWM，停止输出0，无传入参数。
  */
 void Mot3VelocityControl(void)
 {
@@ -258,7 +258,6 @@ void Mot3VelocityControl(void)
 	 u32 encode_count; // 本周期编码器速度换算中间值。
 	 u32 remainingPulseNum; // 当前目标剩余的编码器脉冲数。
 	 u32 brakePulseNum; // 本次运动采用的减速窗口脉冲数。
-	u8 isHomingToLimit; // 初始化阶段是否正在寻找机械限位。
 
 	
 	if( Mot3.PidEn == 0 )	return;	
@@ -266,7 +265,6 @@ void Mot3VelocityControl(void)
 	if( Mot3.PidTimer >= C_PID_RATE ) {
 	
 		Mot3.PidTimer = Mot3.PidTimer - C_PID_RATE;
-		isHomingToLimit = (Mot3.Reset != 0) && (Mot3.Step < 3);
 		//printf("Mot3.PidTimer1 =%d\n", Mot3.PidTimer);
 		
 		if( Mot3.Action == motor_forward )  {		
@@ -303,7 +301,7 @@ void Mot3VelocityControl(void)
             if( brakePulseNum == 0 ) brakePulseNum = 1; // 至少保留1脉冲窗口，避免速度插值除零。
             if( brakePulseNum > Mot3PidApproachPulseNum ) brakePulseNum = Mot3PidApproachPulseNum;
             PidTargetVelocity = Mot3.TarVelocity;
-            if( (isHomingToLimit == 0) && (PidTargetVelocity > Mot3PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
+            if( (PidTargetVelocity > Mot3PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
                 PidTargetVelocity = Mot3PidApproachMinVelocity +
                     (u16)(((u32)(Mot3.TarVelocity - Mot3PidApproachMinVelocity) * remainingPulseNum) / brakePulseNum);
             }

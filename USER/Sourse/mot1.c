@@ -228,7 +228,7 @@ void Mot1EnablePidControl(void)
     Mot1PidPreviousPreviousError = 0;
     Mot1PidOutputScaled = (int32_t)Mot1PidStartDuty * Mot1PidScale;
     Mot1.PidEn = Enable;
-    // TIM1_SetDuty_CH3(c_testPwmDuty); // 测试模式：有效运动启动时立即输出满占空比。
+    // TIM1_SetDuty_CH3(c_testPwmDuty); // 测试模式：有效运动启动时立即输出固定占空比。
 }
 /**
  * 函数作用：关闭Mot1速度PID并清零PWM和历史控制状态，无传入参数。
@@ -250,7 +250,7 @@ void Mot1SetTargetPosition( u16 num )
 	Mot1.TarPosition = num;
 }	
 /**
- * 函数作用：每个速度控制周期更新Mot1速度反馈、位置角度和PWM，无传入参数。
+ * 函数作用：每周期更新速度、角度和PWM；寻位、回中及普通定位均按剩余目标脉冲减速；有效运动限制最低PWM，停止输出0，无传入参数。
  */
 void Mot1VelocityControl(void)
 {
@@ -260,7 +260,6 @@ void Mot1VelocityControl(void)
 	 u32 encode_count; // 本周期编码器速度换算中间值。
 	 u32 remainingPulseNum; // 当前目标剩余的编码器脉冲数。
 	 u32 brakePulseNum; // 本次运动采用的减速窗口脉冲数。
-	u8 isHomingToLimit; // 初始化阶段是否正在寻找机械限位。
 
 	
 	if( Mot1.PidEn == 0 )	return;	
@@ -268,7 +267,6 @@ void Mot1VelocityControl(void)
 	if( Mot1.PidTimer >= C_PID_RATE ) {
 	
 		Mot1.PidTimer = Mot1.PidTimer - C_PID_RATE;
-		isHomingToLimit = (Mot1.Reset != 0) && (Mot1.Step < 3);
 		//printf("Mot1.PidTimer1 =%d\n", Mot1.PidTimer);
 		
 		if( Mot1.Action == motor_forward )  {		
@@ -302,7 +300,7 @@ void Mot1VelocityControl(void)
             if( brakePulseNum == 0 ) brakePulseNum = 1; // 至少保留1脉冲窗口，避免速度插值除零。
             if( brakePulseNum > Mot1PidApproachPulseNum ) brakePulseNum = Mot1PidApproachPulseNum;
             PidTargetVelocity = Mot1.TarVelocity;
-            if( (isHomingToLimit == 0) && (PidTargetVelocity > Mot1PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
+            if( (PidTargetVelocity > Mot1PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
                 PidTargetVelocity = Mot1PidApproachMinVelocity +
                     (u16)(((u32)(Mot1.TarVelocity - Mot1PidApproachMinVelocity) * remainingPulseNum) / brakePulseNum);
             }
