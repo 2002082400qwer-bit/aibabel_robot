@@ -119,10 +119,10 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3PidScale 100 							// 增量式PID增益缩放，Ki按每个50ms周期累加。
 #define Mot3VelocityKp 100 							// 比例增益Kp=1.00，按Mot2现有PID单位缩放。
 #define Mot3VelocityKi 2 							// 积分增益Ki=0.02，每个50ms控制周期累加。
-#define Mot3VelocityKd 50 							// 微分增益Kd=0.50，提高速度变化时的制动响应。
+#define Mot3VelocityKd 100 // 微分增益Kd=1.00，与MOT1当前参数一致。
 #define Mot3PidMinimumDuty 1800 // MOT3有效运动期间的最低PWM，停止或到达目标时不启用。
-#define Mot3PidStartDuty 2000 						// 每次启动PID时的初始PWM基准。
-#define Mot3PidApproachPulseNum 300 				// 剩余脉冲进入此窗口后开始提前减速。
+#define Mot3PidStartDuty 1800 // PID启动初值，与MOT1当前参数一致。
+#define Mot3PidApproachPulseNum 500 // 最多提前500脉冲减速，短行程使用本次目标脉冲数的一半。
 #define Mot3PidApproachMinVelocity 20 				// 接近目标时的最低速度指令。
 static int32_t Mot3PidPreviousError = 0; 			// 上一个控制周期的速度误差。
 static int32_t Mot3PidPreviousPreviousError = 0; 	// 上上个控制周期的速度误差。
@@ -226,7 +226,7 @@ void Mot3EnablePidControl(void)
     Mot3PidPreviousPreviousError = 0;
     Mot3PidOutputScaled = (Mot3.TarVelocity != 0) ? (int32_t)Mot3PidStartDuty * Mot3PidScale : 0; // 零速度指令不产生启动PWM。
     Mot3.PidEn = Enable;
-	TIM1_SetDuty_CH2((u16)(Mot3PidOutputScaled / Mot3PidScale)); // 立即输出PID初值，零速度时保持0。
+	// TIM1_SetDuty_CH2(c_testPwmDutyMot3); // 测试模式：有效运动启动时立即输出固定占空比。
 }
 /**
  * 函数作用：关闭Mot3速度PID并清零PWM和历史控制状态，无传入参数。
@@ -248,7 +248,7 @@ void Mot3SetTargetPosition( u16 num )
 	Mot3.TarPosition = num;
 }	
 /**
- * 函数作用：每个速度控制周期更新Mot3速度反馈、位置角度和PWM；有效运动时限制最低PWM，停止时输出0，无传入参数。
+ * 函数作用：每周期更新速度、角度和PWM；普通定位及回中使用半程减速窗口，寻限位不提前减速；有效运动限制最低PWM，停止输出0，无传入参数。
  */
 void Mot3VelocityControl(void)
 {
@@ -258,6 +258,7 @@ void Mot3VelocityControl(void)
 	 u32 encode_count; // 本周期编码器速度换算中间值。
 	 u32 remainingPulseNum; // 当前目标剩余的编码器脉冲数。
 	 u32 brakePulseNum; // 本次运动采用的减速窗口脉冲数。
+	u8 isHomingToLimit; // 初始化阶段是否正在寻找机械限位。
 
 	
 	if( Mot3.PidEn == 0 )	return;	
@@ -265,6 +266,7 @@ void Mot3VelocityControl(void)
 	if( Mot3.PidTimer >= C_PID_RATE ) {
 	
 		Mot3.PidTimer = Mot3.PidTimer - C_PID_RATE;
+		isHomingToLimit = (Mot3.Reset != 0) && (Mot3.Step < 3);
 		//printf("Mot3.PidTimer1 =%d\n", Mot3.PidTimer);
 		
 		if( Mot3.Action == motor_forward )  {		
@@ -297,10 +299,11 @@ void Mot3VelocityControl(void)
         }
         else {
             remainingPulseNum = Mot3.TarPulseNum - Mot3.PulseNum;
-            brakePulseNum = Mot3.TarPulseNum;
+            brakePulseNum = Mot3.TarPulseNum / 2;
+            if( brakePulseNum == 0 ) brakePulseNum = 1; // 至少保留1脉冲窗口，避免速度插值除零。
             if( brakePulseNum > Mot3PidApproachPulseNum ) brakePulseNum = Mot3PidApproachPulseNum;
             PidTargetVelocity = Mot3.TarVelocity;
-            if( (PidTargetVelocity > Mot3PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
+            if( (isHomingToLimit == 0) && (PidTargetVelocity > Mot3PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
                 PidTargetVelocity = Mot3PidApproachMinVelocity +
                     (u16)(((u32)(Mot3.TarVelocity - Mot3PidApproachMinVelocity) * remainingPulseNum) / brakePulseNum);
             }
