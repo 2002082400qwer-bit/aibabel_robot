@@ -142,6 +142,28 @@ function runMotorCalibrationTests(input) {
         check('MOT'+axis+'最终被错误限位打断不使能',()=>{const state=homing(1);state.motor.Step=3;state.motor.BrakeType=1;state.run();equal(state.motor.En,0);equal(state.motor.Faultflag,4);});
         check('MOT'+axis+'首次完整自检归位保持成功',()=>{const state=homing(0);state.motor.Step=3;state.motor.BrakeType=axis===2?3:2;state.run();equal([state.motor.Reset,state.motor.En],[0,1]);});
         if (axis!==2) {
+            for (const step of [1,2]) {
+                for (const hallDetected of [false,true]) {
+                    check('MOT'+axis+'首次自检阶段'+step+(hallDetected?'霍尔与保护脉冲同时到达按霍尔确认':'只有保护脉冲不能确认限位'),()=>{
+                        const state=homing(0); // 首次完整自检，旧记录未加载。
+                        const forward=step===2; // 第二阶段寻找另一端限位。
+                        Object.assign(state.motor,{Step:step,Action:forward?2:3,PulseNum:100,TarPulseNum:100,CurPosition:forward?0:20000,PulseDebB:1000,PulseNumPerAngle:400,Hall1Sta:!forward&&hallDetected?1:0,Hall2Sta:forward&&hallDetected?1:0});
+                        const hallNames=axis===1?['ReadLeftHallState','ReadRightHallState']:['ReadUpHallState','ReadDownHallState']; // 对应电机两侧的实际霍尔接口。
+                        const realAction=hallNames.map(name=>calibrationExtract(source,'Mot'+axis+name)).join('\n')+calibrationExtract(source,'Mot'+axis+'ActionHandle'); // 真实停止原因及停稳处理。
+                        const actionFactory=new Function('Mot1','Mot2','Mot3','io','loaded',environment+setup+' const C_MotorStopDeb=1000,c_AngleScaleFactor=10; function Mot'+axis+'VelocityControl(){} function Mot'+axis+'DisablePidControl(){io.pwm=0;} '+realAction+service+';return Mot'+axis+'MoveService;'); // 仅替换速度和PWM硬件，保留状态机判断。
+                        const run=actionFactory(...state.motors,state.io,0); // 本次首次寻限位场景。
+                        run(); run();
+                        equal(state.io.pwm,0);
+                        if (hallDetected) {
+                            equal(state.motor.BrakeType,forward?1:3); equal(state.motor.Faultflag,0);
+                            equal(state.motor.Step,forward?3:2); equal(state.motor.MaxPulseNum,forward?100:7200);
+                        } else {
+                            equal(state.motor.Faultflag,forward?2:1); equal(state.motor.Step,4);
+                            equal(state.motor.MaxPulseNum,7200); equal(state.motor.En,0); equal(state.io.moves,[]);
+                        }
+                    });
+                }
+            }
             for (const loaded of [0,1]) { // 分别覆盖首次反向回中与历史数据正向回中。
             check('MOT'+axis+(loaded?'快速':'首次')+'目标脉冲与端点霍尔同时到达不接受回中',()=>{
                 const state=homing(loaded); // 构造同时满足脉冲和霍尔停机的场景。

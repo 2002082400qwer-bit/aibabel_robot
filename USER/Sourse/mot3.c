@@ -419,13 +419,16 @@ void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 		
 }
 
+/** 函数作用：处理运动和停稳位置；寻限位时霍尔优先，未检测到霍尔的保护脉冲停机不确认限位；无传入参数。 */
 void Mot3ActionHandle(void)
 {
+    u8 isHomingToLimit = (Mot3.Reset != 0) && (Mot3.Step < 3); // 寻限位阶段优先确认已消抖的对应霍尔，脉冲仅作保护停机。
 	if( Mot3.Action == motor_forward ) {
 		
 		Mot3VelocityControl();
 		
-		if( Mot3.PulseNum >= Mot3.TarPulseNum )	{
+		if( (Mot3.PulseNum >= Mot3.TarPulseNum) &&
+            ((isHomingToLimit == 0) || (Mot3ReadDownHallState() == 0)) ) {
 			Mot3.BrakeType = pulse_forward_brake;
 			Mot3DisablePidControl();
 			Mot3.Action = motor_brake;
@@ -443,7 +446,8 @@ void Mot3ActionHandle(void)
 		
 		Mot3VelocityControl();
 
-		if( Mot3.PulseNum >= Mot3.TarPulseNum )	{
+		if( (Mot3.PulseNum >= Mot3.TarPulseNum) &&
+            ((isHomingToLimit == 0) || (Mot3ReadUpHallState() == 0)) ) {
 			
 			Mot3.BrakeType = pulse_backward_brake;
 			Mot3DisablePidControl();

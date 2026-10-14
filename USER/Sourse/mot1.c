@@ -414,13 +414,16 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 		Mot1.PidTimerB = 0;
 }
 
+/** 函数作用：处理运动和停稳位置；寻限位时霍尔优先，未检测到霍尔的保护脉冲停机不确认限位；无传入参数。 */
 void Mot1ActionHandle(void)
 {
+    u8 isHomingToLimit = (Mot1.Reset != 0) && (Mot1.Step < 3); // 寻限位阶段优先确认已消抖的对应霍尔，脉冲仅作保护停机。
 	if( Mot1.Action == motor_forward ) {
 		
 		Mot1VelocityControl();
 		
-		if( Mot1.PulseNum >= Mot1.TarPulseNum )	{
+		if( (Mot1.PulseNum >= Mot1.TarPulseNum) &&
+            ((isHomingToLimit == 0) || (Mot1ReadRightHallState() == 0)) ) {
 			Mot1.BrakeType = pulse_forward_brake;
 			Mot1DisablePidControl();
 			Mot1.Action = motor_brake;
@@ -438,7 +441,8 @@ void Mot1ActionHandle(void)
 		
 		Mot1VelocityControl();
 
-		if( Mot1.PulseNum >= Mot1.TarPulseNum )	{
+		if( (Mot1.PulseNum >= Mot1.TarPulseNum) &&
+            ((isHomingToLimit == 0) || (Mot1ReadLeftHallState() == 0)) ) {
 			
 			Mot1.BrakeType = pulse_backward_brake;
 			Mot1DisablePidControl();
