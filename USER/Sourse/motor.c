@@ -126,7 +126,9 @@ void MotorInit(void)
     Mot3Init();
 #endif
     FlashInit();
+    printf("motor calibration config: rewrite=%d, mask=%d\r\n", MotorCalibrationRewriteOnReset, MotorCalibrationMask); // 打印实际编译的重标定开关及启用电机组合。
     MotorCalibrationLoad();
+    printf("motor calibration mode: loaded=%d\r\n", MotorCalibrationLoaded); // 0执行完整标定，1复用历史行程寻零后回中。
     MotorEn = 1;
 }
 

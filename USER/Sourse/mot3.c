@@ -439,7 +439,7 @@ void Mot3ActionHandle(void)
 			Mot3.BrakeType = hall_forward_brake;
 			Mot3DisablePidControl();
 			Mot3.Action = motor_brake;
-			printf("M3hallbrake\n");
+			printf("M3hallbrake down: adc=%d, pulse=%d\r\n", Adc.Mot3.Hall2, Mot3.PulseNum); // 正向另一端由下霍尔确认，记录触发时的原始信号。
 		}		
 	}		
 	else if( Mot3.Action == motor_backward ) {
@@ -459,7 +459,7 @@ void Mot3ActionHandle(void)
 			Mot3.BrakeType = hall_backward_brake;
 			Mot3DisablePidControl();
 			Mot3.Action = motor_brake;
-			printf("M3hallbrake\n");
+			printf("M3hallbrake up: adc=%d, pulse=%d\r\n", Adc.Mot3.Hall1, Mot3.PulseNum); // 反向寻零由上霍尔确认，记录触发时的原始信号。
 		}		
 	}		
 	else if( Mot3.Action == motor_brake )  {
@@ -593,6 +593,7 @@ void Mot3MoveService(void)
 								}
 								else {
 									Mot3SetCurrentPosition(0);
+                                    printf("M3 zero confirmed: loaded=%d, max=%d\r\n", MotorCalibrationLoaded, Mot3.MaxPulseNum); // 核对寻零后实际采用完整标定还是历史半程回中。
 									if( MotorCalibrationLoaded != 0 ) {
 										// 历史标定有效：从零点侧限位（原反向运动对应上霍尔）按保存行程直接回中。
 										Mot3MoveForward( Mot3.MaxPulseNum / 2, 50 );
