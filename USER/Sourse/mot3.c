@@ -120,6 +120,7 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3VelocityKp 100 							// 比例增益Kp=1.00，按Mot2现有PID单位缩放。
 #define Mot3VelocityKi 2 							// 积分增益Ki=0.02，每个50ms控制周期累加。
 #define Mot3VelocityKd 50 							// 微分增益Kd=0.50，提高速度变化时的制动响应。
+#define Mot3PidMinimumDuty 1800 // MOT3有效运动期间的最低PWM，停止或到达目标时不启用。
 #define Mot3PidStartDuty 2000 						// 每次启动PID时的初始PWM基准。
 #define Mot3PidApproachPulseNum 300 				// 剩余脉冲进入此窗口后开始提前减速。
 #define Mot3PidApproachMinVelocity 20 				// 接近目标时的最低速度指令。
@@ -223,8 +224,9 @@ void Mot3EnablePidControl(void)
     Mot3.CurVelocity = 0;
     Mot3PidPreviousError = 0;
     Mot3PidPreviousPreviousError = 0;
-    Mot3PidOutputScaled = (int32_t)Mot3PidStartDuty * Mot3PidScale;
+    Mot3PidOutputScaled = (Mot3.TarVelocity != 0) ? (int32_t)Mot3PidStartDuty * Mot3PidScale : 0; // 零速度指令不产生启动PWM。
     Mot3.PidEn = Enable;
+	TIM1_SetDuty_CH2((u16)(Mot3PidOutputScaled / Mot3PidScale)); // 立即输出PID初值，零速度时保持0。
 }
 /**
  * 函数作用：关闭Mot3速度PID并清零PWM和历史控制状态，无传入参数。
@@ -246,7 +248,7 @@ void Mot3SetTargetPosition( u16 num )
 	Mot3.TarPosition = num;
 }	
 /**
- * 函数作用：每个速度控制周期更新Mot3速度反馈、位置角度和PWM，无传入参数。
+ * 函数作用：每个速度控制周期更新Mot3速度反馈、位置角度和PWM；有效运动时限制最低PWM，停止时输出0，无传入参数。
  */
 void Mot3VelocityControl(void)
 {
@@ -303,11 +305,16 @@ void Mot3VelocityControl(void)
                     (u16)(((u32)(Mot3.TarVelocity - Mot3PidApproachMinVelocity) * remainingPulseNum) / brakePulseNum);
             }
             Pwm = Mot3VelocityFeedbackControl(PidTargetVelocity, Mot3.CurVelocity);
+            if( Mot3PidOutputScaled < (int32_t)Mot3PidMinimumDuty * Mot3PidScale ) {
+                Mot3PidOutputScaled = (int32_t)Mot3PidMinimumDuty * Mot3PidScale; // 仅低于下限时同步内部输出，保留正常Ki积分。
+                Pwm = Mot3PidMinimumDuty;
+            }
         }
 		#else
 		if( Mot3.TarVelocity == 0 ) Pwm = 0;
 		else Pwm = 2400;
 		#endif
+		// Pwm = (Mot3.TarPulseNum > Mot3.PulseNum) ? c_testPwmDutyMot3 : 0; // 测试模式：运动期间输出固定pwm，到达目标脉冲后输出0。
 		TIM1_SetDuty_CH2(Pwm);
 		#if 1
 		printf("M3.TarVel =%d\n", Mot3.TarVelocity);
