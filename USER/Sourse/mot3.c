@@ -646,6 +646,7 @@ void Mot3MoveService(void)
 					(Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0) ) {
 									Mot3.En = 1;
 									Mot3.Reset = 0;
+									printf("MOT3 init complete\r\n"); // 归位确认成功后打印一次初始化完成信息。
 								}
 								else {
 									Mot3.Faultflag = MotorFault;

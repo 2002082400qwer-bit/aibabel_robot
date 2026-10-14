@@ -634,6 +634,7 @@ void Mot1MoveService(void)
 					(Mot1.Hall1Sta == 0) && (Mot1.Hall2Sta == 0) ) {
 									Mot1.En = 1;
 									Mot1.Reset = 0;
+									printf("MOT1 init complete\r\n"); // 归位确认成功后打印一次初始化完成信息。
 								}
 								else {
 									Mot1.Faultflag = MotorFault;
