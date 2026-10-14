@@ -39,7 +39,7 @@ function runMotorCalibrationTests(input) {
     const functions = ['MotorCalibrationValidate', 'MotorCalibrationLoad', 'MotorCalibrationSave', 'MotorCalibrationService', 'MotorInit']; // 被测电机调用及参数校验逻辑。
     const flashFunctions = ['FlashInit', 'FlashCalibrationReadRecord', 'FlashCalibrationChecksum', 'FlashCalibrationValidate', 'FlashCalibrationRead', 'FlashCalibrationWrite']; // 被测Flash模块公开接口、地址读取及记录校验逻辑。
     const globals = Array.from(input.motor.matchAll(/^(?:static\s+)?(?:u8|uint8_t)\s+(Motor\w+)\s*(?:=\s*([^;]+))?;/gm), entry => 'let ' + entry[1] + ' = ' + (entry[2] || '0') + ';').join('\n'); // 电机管理状态初值。
-    const makeStore = new Function('Mot1', 'Mot2', 'Mot3', 'io', macros + globals + `
+    const makeStore = new Function('Mot1', 'Mot2', 'Mot3', 'io', 'MotorCalibrationRewriteOnReset', macros + globals + `
         const FLASH_COMPLETE = 0, motor_stop = 0, NoFault = 0; // 驱动成功状态及无故障停机状态。
         const FLASH_FLAG_EOP = 1, FLASH_FLAG_PGERR = 2, FLASH_FLAG_WRPRTERR = 4; // 测试用Flash标志。
         function printf() {} // 忽略串口输出。
@@ -61,12 +61,12 @@ function runMotorCalibrationTests(input) {
     function check(name, body) { try { body(); passed++; } catch (error) { failures.push(name + '：' + error.message); } }
     /** 函数作用：核对预期值。actual为实际值，expected为人工推导的预期。 */
     function equal(actual, expected) { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw Error('实际 ' + JSON.stringify(actual) + '，期望 ' + JSON.stringify(expected)); }
-    /** 函数作用：建立新上电环境。io为可跨重启复用的硬件存储。 */
-    function boot(io) {
+    /** 函数作用：建立新上电环境。io为跨重启存储，rewriteOnReset为本次复位是否强制重新标定。 */
+    function boot(io, rewriteOnReset = 0) {
         const motors = [{ MaxPulseNum: 3600, PulseNumPerAngle: 200 }, { MaxPulseNum: 3000, PulseNumPerMm: 200 }, { MaxPulseNum: 3600, PulseNumPerAngle: 200 }]; // 初始化默认值。
         motors.forEach(motor => Object.assign(motor, { Reset: 1, En: 0, Faultflag: 0, Action: 0 }));
         io = io || { words: Array(9).fill(0xFFFFFFFF), writes: [], erases: 0, locked: true }; // 外部存储在重启时保留。
-        const control=makeStore(...motors,io); // 本次上电的真实跨模块控制环境。
+        const control=makeStore(...motors,io,rewriteOnReset); // 本次上电的真实跨模块控制环境及重写标记。
         control.init();
         return { motors, io, control };
     }
@@ -90,6 +90,37 @@ function runMotorCalibrationTests(input) {
     check('保存记录保持既有36字节格式和独立CRC样本', () => { const state=boot(); calibrated(state); state.control.service(); equal(state.io.words,[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]); });
     check('零换算系数不能保存', () => { const state=boot(); calibrated(state); state.motors[1].PulseNumPerMm=0; state.control.service(); equal(state.io.erases,0); });
     check('初始化恢复既有记录并锁定Flash而不擦除', () => { const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:false});equal(state.control.loaded(),1);equal(state.motors.map(motor=>motor.MaxPulseNum),[7200,51000,2600]);equal(state.io.erases,0);equal(state.io.locked,true); });
+    check('重写标记开启时忽略有效旧记录且初始化不擦除', () => {
+        const words=[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]; // 独立校准样本。
+        const state=boot({words:words.slice(),writes:[],erases:0,locked:true},1); // 本次请求完整标定。
+        equal(state.control.loaded(),0); equal(state.motors.map(motor=>motor.MaxPulseNum),[3600,3000,3600]);
+        equal(state.io.erases,0); equal(state.io.words,words);
+    });
+    check('重写标记开启后实测成功覆盖一次并可正常重启加载', () => {
+        const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:true},1); // 持有旧记录的重新标定场景。
+        calibrated(state); Object.assign(state.motors[2],{MaxPulseNum:3250,PulseNumPerAngle:500});
+        state.control.service(); state.control.service();
+        equal(state.io.erases,1); equal(state.io.writes.length,9);
+        const next=boot(state.io,0); // 关闭重写后复用本次新数据。
+        equal(next.control.loaded(),1); equal(next.motors[2].MaxPulseNum,3250); equal(next.motors[2].PulseNumPerAngle,500);
+    });
+    check('重写标记开启但自检失败时保留旧记录', () => {
+        const words=[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]; // 失败前有效记录。
+        const state=boot({words:words.slice(),writes:[],erases:0,locked:true},1); // 请求重标定。
+        calibrated(state); state.motors[2].Faultflag=4; state.control.service();
+        equal(state.io.erases,0); equal(state.io.writes,[]); equal(state.io.words,words);
+        equal(boot(state.io,0).control.loaded(),1);
+    });
+    check('重写标记开启但归位未完成时不提前写入', () => {
+        const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:true},1); // 新数据尚未完成校准。
+        calibrated(state); state.motors[0].Reset=1; state.control.service();
+        equal(state.control.loaded(),0); equal(state.io.erases,0); equal(state.io.writes,[]);
+    });
+    check('重写标记持续开启则下次重启仍重新标定', () => {
+        const state=boot(); calibrated(state); state.control.service();
+        const next=boot(state.io,1); // 新一次上电仍开启重写。
+        equal(next.control.loaded(),0); equal(next.motors.map(motor=>motor.MaxPulseNum),[3600,3000,3600]); equal(next.io.erases,1);
+    });
     check('读取失败保持调用者数据不变', () => { const state=boot();const data={MaxPulseNum:[1,2,3],PulseScale:[4,5,6]};equal(state.control.read(data,7),0);equal(data,{MaxPulseNum:[1,2,3],PulseScale:[4,5,6]}); });
     check('读取接口拒绝空目标及非法电机组合', () => { const state=boot();const data={MaxPulseNum:[0,0,0],PulseScale:[0,0,0]};equal(state.control.read(null,7),0);equal(state.control.read(data,0),0);equal(state.control.read(data,8),0); });
     check('写入接口拒绝空数据及非法电机组合且不擦页', () => { const state=boot();const data={MaxPulseNum:[7200,51000,2600],PulseScale:[400,1000,400]};equal(state.control.write(null,7),0);equal(state.control.write(data,0),0);equal(state.control.write(data,8),0);equal(state.io.erases,0); });

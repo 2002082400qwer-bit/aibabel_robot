@@ -30,14 +30,18 @@ static u8 MotorCalibrationValidate(const FlashCalibrationData *calibration)
 }
 
 /**
- * 函数作用：通过Flash接口读取历史标定，保留Reset状态让电机先找基准再归位。
- * 无传入参数；空白、损坏、不兼容或超出电机范围时保留默认值和完整自检流程。
+ * 函数作用：按复位重写标记决定是否读取历史标定，保留Reset状态让电机先找基准再归位。
+ * 无传入参数；重写标记开启或记录无效时保留默认值并完整自检，初始化阶段不擦除旧记录。
  */
 static void MotorCalibrationLoad(void)
 {
     FlashCalibrationData calibration; // Flash接口返回的三路校准数据。
 
     MotorCalibrationLoaded = 0;
+    if( MotorCalibrationRewriteOnReset != 0 ) {
+        printf("motor calibration rewrite requested\r\n"); // 本次复位跳过旧校准，待完整自检成功后再保存。
+        return;
+    }
     if( FlashCalibrationRead(&calibration, MotorCalibrationMask) == 0 ) return;
     if( MotorCalibrationValidate(&calibration) == 0 ) return;
 #if Motor1Enable == 1
@@ -86,7 +90,7 @@ static u8 MotorCalibrationSave(void)
 }
 
 /**
- * 函数作用：等待全部启用电机自检和归位成功后保存一次，历史标定启动不重复擦写。
+ * 函数作用：等待全部启用电机自检和归位成功后保存一次；请求复位重写时覆盖保存，复用历史标定时不擦写。
  * 无传入参数；任一路未停止、未完成或出现故障时不保存。
  */
 static void MotorCalibrationService(void)
@@ -107,7 +111,7 @@ static void MotorCalibrationService(void)
     else printf("motor calibration save failed\n");
 }
 
-/** 函数作用：初始化启用的电机、Flash存储访问并读取历史校准数据；无传入参数。 */
+/** 函数作用：初始化启用的电机和Flash访问，按复位重写标记选择历史校准或完整自检；无传入参数。 */
 void MotorInit(void)
 {
     MotorCalibrationLoaded = 0;
