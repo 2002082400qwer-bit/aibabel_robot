@@ -121,6 +121,7 @@ u8 Mot3ReadDownHallState(void)
 #define Mot3VelocityKi 2 							// 积分增益Ki=0.02，每个50ms控制周期累加。
 #define Mot3VelocityKd 100 // 微分增益Kd=1.00，与MOT1当前参数一致。
 #define Mot3PidMinimumDuty 1800 // MOT3有效运动期间的最低PWM，停止或到达目标时不启用。
+#define Mot3HomingDuty 1800 // 首次标定和后续寻零的固定低PWM，不受速度PID积分影响。
 #define Mot3PidStartDuty 1800 // PID启动初值，与MOT1当前参数一致。
 #define Mot3PidApproachPulseNum 500 // 最多提前500脉冲减速，短行程使用本次目标脉冲数的一半。
 #define Mot3PidApproachMinVelocity 20 				// 接近目标时的最低速度指令。
@@ -216,7 +217,7 @@ void Mot3ClearEncode(void)
 	Mot3.PidTimerB = 0;
 }	
 /**
- * 函数作用：清零编码器状态并启用Mot3速度闭环，无传入参数。
+ * 函数作用：清零编码器及PID状态并启用运动控制；寻限位立即输出低PWM，回中及普通定位启用速度PID，无传入参数。
  */
 void Mot3EnablePidControl(void)
 {
@@ -226,6 +227,9 @@ void Mot3EnablePidControl(void)
     Mot3PidPreviousPreviousError = 0;
     Mot3PidOutputScaled = (Mot3.TarVelocity != 0) ? (int32_t)Mot3PidStartDuty * Mot3PidScale : 0; // 零速度指令不产生启动PWM。
     Mot3.PidEn = Enable;
+    if( (Mot3.Reset != 0) && (Mot3.Step < 3) ) {
+        TIM1_SetDuty_CH2((Mot3.TarVelocity != 0 && Mot3.TarPulseNum != 0) ? Mot3HomingDuty : 0); // 寻限位立即输出低PWM，零速度或零行程保持0。
+    }
 	// TIM1_SetDuty_CH2(c_testPwmDutyMot3); // 测试模式：有效运动启动时立即输出固定占空比。
 }
 /**
@@ -248,7 +252,7 @@ void Mot3SetTargetPosition( u16 num )
 	Mot3.TarPosition = num;
 }	
 /**
- * 函数作用：每周期更新速度、角度和PWM；寻位、回中及普通定位均按剩余目标脉冲减速；有效运动限制最低PWM，停止输出0，无传入参数。
+ * 函数作用：每周期更新速度、角度和PWM；首次标定及后续寻零固定低PWM，回中和普通定位使用PID及距离减速；停止输出0，无传入参数。
  */
 void Mot3VelocityControl(void)
 {
@@ -294,6 +298,9 @@ void Mot3VelocityControl(void)
 		#if 1
 		        if( (Mot3.TarVelocity == 0) || (Mot3.TarPulseNum <= Mot3.PulseNum) ) {
             Pwm = Mot3VelocityFeedbackControl(0, Mot3.CurVelocity);
+        }
+        else if( (Mot3.Reset != 0) && (Mot3.Step < 3) ) {
+            Pwm = Mot3HomingDuty; // 两侧寻限位全程固定低PWM，按编码器累计实际行程，不运行速度PID。
         }
         else {
             remainingPulseNum = Mot3.TarPulseNum - Mot3.PulseNum;

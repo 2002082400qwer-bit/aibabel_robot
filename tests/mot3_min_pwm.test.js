@@ -88,8 +88,8 @@ const cases = [
     { name: '短行程后半程按剩余距离减速', seed: 0, fields: { TarVelocity: 100, PulseNum: 75 }, target: 60 },
     { name: '长行程最多提前500脉冲减速', seed: 0, fields: { TarVelocity: 100, TarPulseNum: 2000, PulseNum: 1600, MaxPulseNum: 2000 }, target: 84 },
     { name: '长行程500脉冲边界不提前减速', seed: 0, fields: { TarVelocity: 100, TarPulseNum: 2000, PulseNum: 1500, MaxPulseNum: 2000 }, target: 100 },
-    { name: '初始化寻零限位也按剩余目标脉冲减速', seed: 0, fields: { Reset: 1, Step: 1, Action: 3, CurPosition: 100, TarVelocity: 100, PulseNum: 75 }, target: 60 },
-    { name: '首次往返自检寻另一限位也按剩余目标脉冲减速', seed: 0, fields: { Reset: 1, Step: 2, TarVelocity: 100, PulseNum: 75 }, target: 60 },
+    { name: '初始化寻零限位固定低PWM并绕过PID', seed: 0, fields: { Reset: 1, Step: 1, Action: 3, CurPosition: 100, TarVelocity: 100, PulseNum: 75 }, want: [1800, 0], noPid: true },
+    { name: '首次往返自检另一限位固定低PWM并绕过PID', seed: 0, fields: { Reset: 1, Step: 2, TarVelocity: 100, PulseNum: 75 }, want: [1800, 0], noPid: true },
     { name: '初始化回中仍按距离减速', seed: 0, fields: { Reset: 1, Step: 3, TarVelocity: 100, PulseNum: 75 }, target: 60 },
     { name: '反向普通定位按距离减速', seed: 0, fields: { Action: 3, CurPosition: 100, TarVelocity: 100, PulseNum: 75 }, target: 60 },
     { name: '低于接近速度的指令不被抬高', seed: 0, fields: { TarVelocity: 10, PulseNum: 75 }, target: 10 },
@@ -107,6 +107,7 @@ for (const test of cases) {
     control[test.method || 'velocity']();
     try {
         if (test.want) assert.deepEqual([hardware.pwm, control.output()], test.want);
+        if (test.noPid) assert.equal(hardware.target, undefined);
         if (test.target !== undefined) {
             assert.equal(hardware.target, test.target);
             assert.equal(hardware.pwm, 1800);

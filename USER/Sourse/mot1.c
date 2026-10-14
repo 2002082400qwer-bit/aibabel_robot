@@ -126,6 +126,7 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1PidApproachPulseNum 500 			// 最多提前500脉冲减速，短行程使用本次目标脉冲数的一半。
 #define Mot1PidApproachMinVelocity 20 			// 接近目标时的最低速度指令。
 #define Mot1PidMinimumDuty 1800 				// Mot1运行期间的PWM下限，初始化和普通定位均生效。
+#define Mot1HomingDuty 1800 // 首次标定和后续寻零的固定低PWM，不受速度PID积分影响。
 static int32_t Mot1PidPreviousError = 0; 		// 上一个控制周期的速度误差。
 static int32_t Mot1PidPreviousPreviousError = 0;// 上上个控制周期的速度误差。
 static int32_t Mot1PidOutputScaled = 0; 		// 按PID缩放比例保存的PWM输出.
@@ -218,7 +219,7 @@ void Mot1ClearEncode(void)
 	Mot1.PidTimerB = 0;
 }	
 /**
- * 函数作用：清零编码器状态并启用Mot1速度闭环，无传入参数。
+ * 函数作用：清零编码器及PID状态并启用运动控制；寻限位立即输出低PWM，回中及普通定位启用速度PID，无传入参数。
  */
 void Mot1EnablePidControl(void)
 {
@@ -226,8 +227,11 @@ void Mot1EnablePidControl(void)
     Mot1.CurVelocity = 0;
     Mot1PidPreviousError = 0;
     Mot1PidPreviousPreviousError = 0;
-    Mot1PidOutputScaled = (int32_t)Mot1PidStartDuty * Mot1PidScale;
+    Mot1PidOutputScaled = (Mot1.TarVelocity != 0) ? (int32_t)Mot1PidStartDuty * Mot1PidScale : 0; // 零速度指令不产生启动PWM。
     Mot1.PidEn = Enable;
+    if( (Mot1.Reset != 0) && (Mot1.Step < 3) ) {
+        TIM1_SetDuty_CH3((Mot1.TarVelocity != 0 && Mot1.TarPulseNum != 0) ? Mot1HomingDuty : 0); // 寻限位立即输出低PWM，零速度或零行程保持0。
+    }
     // TIM1_SetDuty_CH3(c_testPwmDuty); // 测试模式：有效运动启动时立即输出固定占空比。
 }
 /**
@@ -250,7 +254,7 @@ void Mot1SetTargetPosition( u16 num )
 	Mot1.TarPosition = num;
 }	
 /**
- * 函数作用：每周期更新速度、角度和PWM；寻位、回中及普通定位均按剩余目标脉冲减速；有效运动限制最低PWM，停止输出0，无传入参数。
+ * 函数作用：每周期更新速度、角度和PWM；首次标定及后续寻零固定低PWM，回中和普通定位使用PID及距离减速；停止输出0，无传入参数。
  */
 void Mot1VelocityControl(void)
 {
@@ -293,6 +297,9 @@ void Mot1VelocityControl(void)
 				
 		if( (Mot1.TarVelocity == 0) || (Mot1.TarPulseNum <= Mot1.PulseNum) ) {
             Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
+        }
+        else if( (Mot1.Reset != 0) && (Mot1.Step < 3) ) {
+            Pwm = Mot1HomingDuty; // 两侧寻限位全程固定低PWM，按编码器累计实际行程，不运行速度PID。
         }
         else {
             remainingPulseNum = Mot1.TarPulseNum - Mot1.PulseNum;
