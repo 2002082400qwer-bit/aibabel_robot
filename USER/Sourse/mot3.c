@@ -254,6 +254,7 @@ void Mot3SetTargetPosition( u16 num )
 /**
  * 函数作用：每周期更新速度、角度和PWM；首次标定及后续寻零固定低PWM，回中和普通定位使用PID及距离减速；停止输出0，无传入参数。
  */
+// [打印精简] 函数作用：计算电机速度并更新PWM；无传入参数。
 void Mot3VelocityControl(void)
 {
 	u16 Pwm; // 本周期计算得到的PWM占空比。
@@ -325,12 +326,12 @@ void Mot3VelocityControl(void)
 		// Pwm = (Mot3.TarPulseNum > Mot3.PulseNum) ? c_testPwmDutyMot3 : 0; // 测试模式：运动期间输出固定pwm，到达目标脉冲后输出0。
 		TIM1_SetDuty_CH2(Pwm);
 		#if 1
-		printf("M3.TarVel =%d\n", Mot3.TarVelocity);
-		printf("M3.CurVel =%d\n", Mot3.CurVelocity);
-		printf("M3.PulseNum =%d\n", Mot3.PulseNum);
-		printf("M3.CurAngle=%d\n", Mot3.CurAngle);
-		printf("M3.PulseNumPerMin=%d\n", Mot3.PulseNumPerMin);
-		printf("pwm =%d\n", Pwm );
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarVel =%d\n", Mot3.TarVelocity);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.CurVel =%d\n", Mot3.CurVelocity);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.PulseNum =%d\n", Mot3.PulseNum);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.CurAngle=%d\n", Mot3.CurAngle);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.PulseNumPerMin=%d\n", Mot3.PulseNumPerMin);
+		// [打印精简] 暂停调试数据，按需恢复： printf("pwm =%d\n", Pwm );
 		#endif
 		//printf("Mot3.PidTimer2 =%d\n", Mot3.PidTimer);
 	}	
@@ -367,6 +368,7 @@ void Mot3MoveBrake(void)
 		}	
 }	
 /** 函数作用：电机3正向移动；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
+// [打印精简] 函数作用：启动电机正向运动；TarPosition为目标脉冲位置，Velocity为目标速度。
 void Mot3MoveForward( u16 TarPosition, u16 Velocity )
 {
 		printf("M3 forward\n");
@@ -376,13 +378,13 @@ void Mot3MoveForward( u16 TarPosition, u16 Velocity )
 		Mot3.TarPosition = TarPosition;
 	  Mot3.TarVelocity = Velocity;
 		
-		printf("M3.CurPos=%d\n", Mot3.CurPosition);
-		printf("M3.TarPos=%d\n", Mot3.TarPosition);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.CurPos=%d\n", Mot3.CurPosition);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarPos=%d\n", Mot3.TarPosition);
 	
 		if(  Mot3.TarPosition >  Mot3.CurPosition )	Mot3.TarPulseNum =  Mot3.TarPosition -  Mot3.CurPosition;
 	  else Mot3.TarPulseNum = 0;
 		
-		printf("M3.TarPulseNum=%d\n", Mot3.TarPulseNum);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarPulseNum=%d\n", Mot3.TarPulseNum);
 		if( Mot3.TarPulseNum != 0 ) {
 		
 			Mot3EnablePidControl();
@@ -393,6 +395,7 @@ void Mot3MoveForward( u16 TarPosition, u16 Velocity )
 }
 
 /** 函数作用：电机3反向移动；TarPosition为目标脉冲坐标，Velocity为目标速度。 */
+// [打印精简] 函数作用：启动电机反向运动；TarPosition为目标脉冲位置，Velocity为目标速度。
 void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 {
 		printf("M3 backward\n");
@@ -403,13 +406,13 @@ void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 		Mot3.TarPosition = TarPosition;
 	  Mot3.TarVelocity = Velocity;
 		
-		printf("M3.CurPos=%d\n", Mot3.CurPosition);
-		printf("M3.TarPos=%d\n", Mot3.TarPosition);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.CurPos=%d\n", Mot3.CurPosition);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarPos=%d\n", Mot3.TarPosition);
 	
 		if(  Mot3.CurPosition >  Mot3.TarPosition )	Mot3.TarPulseNum =  Mot3.CurPosition -  Mot3.TarPosition;
 	  else Mot3.TarPulseNum = 0;
 	
-		printf("M3.TarPulseNum=%d\n", Mot3.TarPulseNum);
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarPulseNum=%d\n", Mot3.TarPulseNum);
 		
 		if( Mot3.TarPulseNum != 0 ) {
 			
@@ -420,6 +423,7 @@ void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 }
 
 /** 函数作用：处理运动和停稳位置；寻限位时霍尔优先，未检测到霍尔的保护脉冲停机不确认限位；无传入参数。 */
+// [打印精简] 函数作用：处理电机运动、限位刹停及停稳位置更新；无传入参数。
 void Mot3ActionHandle(void)
 {
     u8 isHomingToLimit = (Mot3.Reset != 0) && (Mot3.Step < 3); // 寻限位阶段优先确认已消抖的对应霍尔，脉冲仅作保护停机。
@@ -467,8 +471,8 @@ void Mot3ActionHandle(void)
 			if( Mot3.PulseDebB >= C_MotorStopDeb )	{
 				
 				printf("M3 stop\n");
-				printf("M3.PulseNum =%d\n",Mot3.PulseNum );
-				printf("M3.TarPulseNum =%d\n ",Mot3.TarPulseNum );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M3.PulseNum =%d\n",Mot3.PulseNum );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarPulseNum =%d\n ",Mot3.TarPulseNum );
 				//Mot3.ErrPulseNum = Mot3.PulseNum - Mot3.TarPulseNum;
 				//printf("Mot3.ErrPulseNum =%d\n",Mot3.ErrPulseNum);
 
@@ -491,23 +495,24 @@ void Mot3ActionHandle(void)
 					Mot3.CurPosition = 0;					
 					
 				}	
-				printf("M3.CurPos=%d\n ",Mot3.CurPosition );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M3.CurPos=%d\n ",Mot3.CurPosition );
 				Mot3.CurAngle = (u32)(Mot3.CurPosition*c_AngleScaleFactor*c_PulseScaleFactor)/Mot3.PulseNumPerAngle; 
-				printf("M3.CurAngle=%d\n", Mot3.CurAngle);
+				// [打印精简] 暂停调试数据，按需恢复： printf("M3.CurAngle=%d\n", Mot3.CurAngle);
 				Mot3.CurVelocity = 0;
 				Mot3.Action = motor_stop;				
 		}		
 	}		
 }	
 
+// [打印精简] 函数作用：设置电机目标角度和速度；Angle为目标角度，speed为目标速度，单位沿用原接口。
 void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 {
 		u32 sum;
 		Mot3.TarVelocity = speed;
 	  if( Angle >= (c_MaxAngle*10) ) Angle=c_MaxAngle*10;
-		printf("Angle =%d\n", Angle );
-		printf("speed =%d\n", speed );
-		printf("M3.PulseNumPerAngle =%d\n", Mot3.PulseNumPerAngle );
+		// [打印精简] 暂停调试数据，按需恢复： printf("Angle =%d\n", Angle );
+		// [打印精简] 暂停调试数据，按需恢复： printf("speed =%d\n", speed );
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.PulseNumPerAngle =%d\n", Mot3.PulseNumPerAngle );
 	
 		sum = (u32)Angle*Mot3.PulseNumPerAngle;
 	
@@ -515,7 +520,7 @@ void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 	
 		if( sum != 0 ) Mot3.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
 		else Mot3.TarPosition = 0;
-		printf("M3.TarPos=%d\n", Mot3.TarPosition );
+		// [打印精简] 暂停调试数据，按需恢复： printf("M3.TarPos=%d\n", Mot3.TarPosition );
 	
 	if( Mot3.TarPosition > Mot3.CurPosition ) {
 			
@@ -526,14 +531,15 @@ void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 			Mot3MoveBackward( Mot3.TarPosition, speed ); 
 		}	
 }	
+// [打印精简] 函数作用：登记电机运动任务；Angle或Height为目标角度或高度，Speed为目标速度，单位沿用原接口。
 void Move3SetTask( u16 Angle, u16 Speed )
 {
 	if( Mot3.Reset != 0 ) return ;
 	if( ( Angle == Move3.Angle )&&( Speed == Move3.Speed ) ) return ;
 	Move3.Angle = Angle;
 	Move3.Speed = Speed;
-	printf("m3 task angle =%d\n",Angle );
-	printf("m3 task speed =%d\n",Speed );
+	// [打印精简] 暂停调试数据，按需恢复： printf("m3 task angle =%d\n",Angle );
+	// [打印精简] 暂停调试数据，按需恢复： printf("m3 task speed =%d\n",Speed );
 	Move3.Step = 0;
 	Move3.En = Enable;
 }	

@@ -283,6 +283,7 @@ static u8 Mot2IsUpperHomingMove(void)
 /**
  * 函数作用：按固定周期更新电机2位置和编码器速度，运动期间固定输出满占空比；无传入参数。
  */
+// [打印精简] 函数作用：计算电机速度并更新PWM；无传入参数。
 void Mot2VelocityControl(void)
 {
 	u16 Pwm, PidTargetVelocity;
@@ -329,12 +330,12 @@ void Mot2VelocityControl(void)
 	Pwm = (Mot2IsFirstHomingMove() || Mot2IsUpperHomingMove() || (Mot2.TarPulseNum > Mot2.PulseNum)) ? c_MaxPwmDuty : 0; // 首次寻两端限位忽略脉冲上限，其他运动按目标脉冲停机。
 	TIM1_SetDuty_CH1(Pwm);
 #if 1
-	printf("M2.TarVel =%d\n", Mot2.TarVelocity);
-	printf("M2.CurVel =%d\n", Mot2.CurVelocity);
-	printf("M2.PulseNum =%lu\n", (unsigned long)Mot2.PulseNum );
-	printf("M2.CurHeight =%d\n", Mot2.CurHeight);
-	printf("M2.PulseNumPerMin=%lu\n", (unsigned long)Mot2.PulseNumPerMin );
-	printf("pwm =%d\n", Pwm);
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarVel =%d\n", Mot2.TarVelocity);
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurVel =%d\n", Mot2.CurVelocity);
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.PulseNum =%lu\n", (unsigned long)Mot2.PulseNum );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurHeight =%d\n", Mot2.CurHeight);
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.PulseNumPerMin=%lu\n", (unsigned long)Mot2.PulseNumPerMin );
+	// [打印精简] 暂停调试数据，按需恢复： printf("pwm =%d\n", Pwm);
 #endif
 }		
 
@@ -373,6 +374,7 @@ void Mot2MoveBrake(void)
  * TarPosition：目标位置的脉冲数。
  * Velocity：目标运动速度。
  */
+// [打印精简] 函数作用：启动电机正向运动；TarPosition为目标脉冲位置，Velocity为目标速度。
 void Mot2MoveForward( u32 TarPosition, u16 Velocity )
 {
 	printf("M2 forward\n");
@@ -382,13 +384,13 @@ void Mot2MoveForward( u32 TarPosition, u16 Velocity )
 	Mot2.TarPosition = TarPosition;
 	Mot2.TarVelocity = Velocity;
 	
-	printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
-	printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
 
 	if(  Mot2.TarPosition >  Mot2.CurPosition )	Mot2.TarPulseNum =  Mot2.TarPosition -  Mot2.CurPosition;
 	else Mot2.TarPulseNum = 0;
 	
-	printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
 	if( Mot2.TarPulseNum != 0 ) {
 	
 		Mot2EnablePidControl();
@@ -403,6 +405,7 @@ void Mot2MoveForward( u32 TarPosition, u16 Velocity )
  * TarPosition：目标位置的脉冲数，0表示向下限位运动。
  * Velocity：目标运动速度。
  */
+// [打印精简] 函数作用：启动电机反向运动；TarPosition为目标脉冲位置，Velocity为目标速度。
 void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 {
 	printf("M2 backward\n");
@@ -412,8 +415,8 @@ void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 	Mot2.TarPosition = TarPosition;
 	Mot2.TarVelocity = Velocity;
 	
-	printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
-	printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurPos=%lu\n", (unsigned long)Mot2.CurPosition );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
 
 	if( Mot2.TarPosition != 0 ) {
 		if(  Mot2.CurPosition >  Mot2.TarPosition )	Mot2.TarPulseNum =  Mot2.CurPosition -  Mot2.TarPosition;
@@ -421,7 +424,7 @@ void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 	} else {
 			Mot2.TarPulseNum = Mot2.MaxPulseNum*2;
 	}	
-	printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
+	// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarPulseNum=%lu\n", (unsigned long)Mot2.TarPulseNum );
 	
 	if( Mot2.TarPulseNum != 0 ) {
 		
@@ -434,6 +437,7 @@ void Mot2MoveBackward( u32 TarPosition, u16 Velocity)
 /**
  * 函数作用：处理电机2运动、脉冲及霍尔刹停，并在停稳后更新位置；无传入参数。
  */
+// [打印精简] 函数作用：处理电机运动、限位刹停及停稳位置更新；无传入参数。
 void Mot2ActionHandle(void)
 {
 	if( Mot2.Action == motor_forward ) {
@@ -482,11 +486,11 @@ void Mot2ActionHandle(void)
 			if( Mot2.PulseDebB >= C_MotorStopDeb )	{
 				
 				printf("M2 stop\n");
-				printf("M2.PulseNum = %lu\n", (unsigned long)Mot2.PulseNum );
-				printf("M2.TarPulseNum = %lu\n", (unsigned long)Mot2.TarPulseNum );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M2.PulseNum = %lu\n", (unsigned long)Mot2.PulseNum );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarPulseNum = %lu\n", (unsigned long)Mot2.TarPulseNum );
 				//Mot2.ErrPulseNum = Mot2.PulseNum - Mot2.TarPulseNum;
 				//printf("Mot2.ErrPulseNum =%d\n ",Mot2.ErrPulseNum);
-				printf("M2.CurPos=%lu\n ", (unsigned long)Mot2.CurPosition );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurPos=%lu\n ", (unsigned long)Mot2.CurPosition );
 				if( Mot2.BrakeType == pulse_forward_brake ) {
 					Mot2.CurPosition += Mot2.PulseNum;
 					if( Mot2.CurPosition > Mot2.MaxPulseNum ) Mot2.CurPosition = Mot2.MaxPulseNum;
@@ -506,8 +510,8 @@ void Mot2ActionHandle(void)
 					Mot2.CurPosition = 0;					
 					
 				}	
-				printf("M2.CurPos=%lu\n ", (unsigned long)Mot2.CurPosition );
-				printf("M2.CurHeight =%d\n ", Mot2.CurHeight );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurPos=%lu\n ", (unsigned long)Mot2.CurPosition );
+				// [打印精简] 暂停调试数据，按需恢复： printf("M2.CurHeight =%d\n ", Mot2.CurHeight );
 				Mot2.CurHeight = (u32)(Mot2.CurPosition*c_HeightScaleFactor*c_PulseScaleFactor)/Mot2.PulseNumPerMm; 
 				Mot2.CurVelocity = 0;
 				Mot2.Action = motor_stop;				
@@ -515,15 +519,16 @@ void Mot2ActionHandle(void)
 	}		
 }	
 
+// [打印精简] 函数作用：设置电机目标高度和速度；Height为目标高度，speed为目标速度，单位沿用原接口。
 void Mot2SetHeightSpeed( u16 Height, u16 speed )
 {
 		u32 sum;
 	if( Height >= (c_MaxHeight*10) ) Height=c_MaxHeight*10;
-		printf("speed =%d\n", speed );
-		printf("Height =%d\n", Height );
+		// [打印精简] 暂停调试数据，按需恢复： printf("speed =%d\n", speed );
+		// [打印精简] 暂停调试数据，按需恢复： printf("Height =%d\n", Height );
 		Mot2.TarVelocity = speed;
 	
-		printf("M2.PulseNumPerMm =%lu\n", (unsigned long)Mot2.PulseNumPerMm );
+		// [打印精简] 暂停调试数据，按需恢复： printf("M2.PulseNumPerMm =%lu\n", (unsigned long)Mot2.PulseNumPerMm );
 	
 		sum = (u32)Height*Mot2.PulseNumPerMm;
 	
@@ -532,7 +537,7 @@ void Mot2SetHeightSpeed( u16 Height, u16 speed )
 		if( sum != 0 )	Mot2.TarPosition = sum/(c_HeightScaleFactor*c_PulseScaleFactor);
 	  else Mot2.TarPosition = 0;
 		
-		printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
+		// [打印精简] 暂停调试数据，按需恢复： printf("M2.TarPos=%lu\n", (unsigned long)Mot2.TarPosition );
 	
 	if( Mot2.TarPosition > Mot2.CurPosition ) {
 			
@@ -543,14 +548,15 @@ void Mot2SetHeightSpeed( u16 Height, u16 speed )
 			Mot2MoveBackward( Mot2.TarPosition, speed ); 
 		}	
 }	
+// [打印精简] 函数作用：登记电机运动任务；Angle或Height为目标角度或高度，Speed为目标速度，单位沿用原接口。
 void Move2SetTask( u16 Height, u16 Speed )
 {
 	if( Mot2.Reset != 0 ) return ;
 	if( ( Height == Move2.Height )&&( Speed == Move2.Speed ) ) return ;
 	Move2.Height = Height;
 	Move2.Speed = Speed;
-	printf("m2 task height =%d\n",Height );
-	printf("m2 task speed =%d\n",Speed );
+	// [打印精简] 暂停调试数据，按需恢复： printf("m2 task height =%d\n",Height );
+	// [打印精简] 暂停调试数据，按需恢复： printf("m2 task speed =%d\n",Speed );
 	Move2.Step = 0;
 	Move2.En = Enable;
 }	
