@@ -39,7 +39,7 @@ function runMotorCalibrationTests(input) {
     const functions = ['MotorCalibrationValidate', 'MotorCalibrationLoad', 'MotorCalibrationSave', 'MotorCalibrationService', 'MotorInit']; // 被测电机调用及参数校验逻辑。
     const flashFunctions = ['FlashInit', 'FlashCalibrationReadRecord', 'FlashCalibrationChecksum', 'FlashCalibrationValidate', 'FlashCalibrationRead', 'FlashCalibrationWrite']; // 被测Flash模块公开接口、地址读取及记录校验逻辑。
     const globals = Array.from(input.motor.matchAll(/^(?:static\s+)?(?:u8|uint8_t)\s+(Motor\w+)\s*(?:=\s*([^;]+))?;/gm), entry => 'let ' + entry[1] + ' = ' + (entry[2] || '0') + ';').join('\n'); // 电机管理状态初值。
-    const makeStore = new Function('Mot1', 'Mot2', 'Mot3', 'io', macros + globals + `
+    const makeStore = new Function('Mot1', 'Mot2', 'Mot3', 'io', 'MotorCalibrationRewriteOnReset', macros + globals + `
         const FLASH_COMPLETE = 0, motor_stop = 0, NoFault = 0; // 驱动成功状态及无故障停机状态。
         const FLASH_FLAG_EOP = 1, FLASH_FLAG_PGERR = 2, FLASH_FLAG_WRPRTERR = 4; // 测试用Flash标志。
         function printf() {} // 忽略串口输出。
@@ -61,12 +61,12 @@ function runMotorCalibrationTests(input) {
     function check(name, body) { try { body(); passed++; } catch (error) { failures.push(name + '：' + error.message); } }
     /** 函数作用：核对预期值。actual为实际值，expected为人工推导的预期。 */
     function equal(actual, expected) { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw Error('实际 ' + JSON.stringify(actual) + '，期望 ' + JSON.stringify(expected)); }
-    /** 函数作用：建立新上电环境。io为可跨重启复用的硬件存储。 */
-    function boot(io) {
+    /** 函数作用：建立新上电环境。io为跨重启存储，rewriteOnReset为本次复位是否强制重新标定。 */
+    function boot(io, rewriteOnReset = 0) {
         const motors = [{ MaxPulseNum: 3600, PulseNumPerAngle: 200 }, { MaxPulseNum: 3000, PulseNumPerMm: 200 }, { MaxPulseNum: 3600, PulseNumPerAngle: 200 }]; // 初始化默认值。
         motors.forEach(motor => Object.assign(motor, { Reset: 1, En: 0, Faultflag: 0, Action: 0 }));
         io = io || { words: Array(9).fill(0xFFFFFFFF), writes: [], erases: 0, locked: true }; // 外部存储在重启时保留。
-        const control=makeStore(...motors,io); // 本次上电的真实跨模块控制环境。
+        const control=makeStore(...motors,io,rewriteOnReset); // 本次上电的真实跨模块控制环境及重写标记。
         control.init();
         return { motors, io, control };
     }
@@ -90,6 +90,37 @@ function runMotorCalibrationTests(input) {
     check('保存记录保持既有36字节格式和独立CRC样本', () => { const state=boot(); calibrated(state); state.control.service(); equal(state.io.words,[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]); });
     check('零换算系数不能保存', () => { const state=boot(); calibrated(state); state.motors[1].PulseNumPerMm=0; state.control.service(); equal(state.io.erases,0); });
     check('初始化恢复既有记录并锁定Flash而不擦除', () => { const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:false});equal(state.control.loaded(),1);equal(state.motors.map(motor=>motor.MaxPulseNum),[7200,51000,2600]);equal(state.io.erases,0);equal(state.io.locked,true); });
+    check('重写标记开启时忽略有效旧记录且初始化不擦除', () => {
+        const words=[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]; // 独立校准样本。
+        const state=boot({words:words.slice(),writes:[],erases:0,locked:true},1); // 本次请求完整标定。
+        equal(state.control.loaded(),0); equal(state.motors.map(motor=>motor.MaxPulseNum),[3600,3000,3600]);
+        equal(state.io.erases,0); equal(state.io.words,words);
+    });
+    check('重写标记开启后实测成功覆盖一次并可正常重启加载', () => {
+        const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:true},1); // 持有旧记录的重新标定场景。
+        calibrated(state); Object.assign(state.motors[2],{MaxPulseNum:3250,PulseNumPerAngle:500});
+        state.control.service(); state.control.service();
+        equal(state.io.erases,1); equal(state.io.writes.length,9);
+        const next=boot(state.io,0); // 关闭重写后复用本次新数据。
+        equal(next.control.loaded(),1); equal(next.motors[2].MaxPulseNum,3250); equal(next.motors[2].PulseNumPerAngle,500);
+    });
+    check('重写标记开启但自检失败时保留旧记录', () => {
+        const words=[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6]; // 失败前有效记录。
+        const state=boot({words:words.slice(),writes:[],erases:0,locked:true},1); // 请求重标定。
+        calibrated(state); state.motors[2].Faultflag=4; state.control.service();
+        equal(state.io.erases,0); equal(state.io.writes,[]); equal(state.io.words,words);
+        equal(boot(state.io,0).control.loaded(),1);
+    });
+    check('重写标记开启但归位未完成时不提前写入', () => {
+        const state=boot({words:[0x4D43414C,0x00010007,7200,400,51000,1000,2600,400,0xB89C33A6],writes:[],erases:0,locked:true},1); // 新数据尚未完成校准。
+        calibrated(state); state.motors[0].Reset=1; state.control.service();
+        equal(state.control.loaded(),0); equal(state.io.erases,0); equal(state.io.writes,[]);
+    });
+    check('重写标记持续开启则下次重启仍重新标定', () => {
+        const state=boot(); calibrated(state); state.control.service();
+        const next=boot(state.io,1); // 新一次上电仍开启重写。
+        equal(next.control.loaded(),0); equal(next.motors.map(motor=>motor.MaxPulseNum),[3600,3000,3600]); equal(next.io.erases,1);
+    });
     check('读取失败保持调用者数据不变', () => { const state=boot();const data={MaxPulseNum:[1,2,3],PulseScale:[4,5,6]};equal(state.control.read(data,7),0);equal(data,{MaxPulseNum:[1,2,3],PulseScale:[4,5,6]}); });
     check('读取接口拒绝空目标及非法电机组合', () => { const state=boot();const data={MaxPulseNum:[0,0,0],PulseScale:[0,0,0]};equal(state.control.read(null,7),0);equal(state.control.read(data,0),0);equal(state.control.read(data,8),0); });
     check('写入接口拒绝空数据及非法电机组合且不擦页', () => { const state=boot();const data={MaxPulseNum:[7200,51000,2600],PulseScale:[400,1000,400]};equal(state.control.write(null,7),0);equal(state.control.write(data,0),0);equal(state.control.write(data,8),0);equal(state.io.erases,0); });
@@ -99,7 +130,7 @@ function runMotorCalibrationTests(input) {
         const source=input.axes[axis-1]; // 对应电机的实际自检状态机。
         const service=calibrationExtract(source,'Mot'+axis+'MoveService'); // 保留生产状态机分支。
         const environment = 'let MotorCalibrationLoaded = loaded; const Motor1Enable=1, Motor2Enable=1; const c_MoveTimeOver='+([20000,40000,30000][axis-1])+'; const c_PulseScaleFactor=10, c_MaxAngle='+ (axis===1?180:65) +', c_MaxHeight=510, C_VerifyMinimumPulseNum=20; const motor_stop=0, motor_brake=1, motor_forward=2, motor_backward=3, hall_backward_brake=3, hall_forward_brake=1, pulse_forward_brake=0, pulse_backward_brake=2, Hall1Fault=1, Hall2Fault=2, MotorFault=4; function printf(){} function delay_ms(){}'; // 状态机所用真实枚举值。
-        const setup = ['LeftHallScan','RightHallScan','UpHallScan','DownHallScan','ActionHandle','MoveTask'].map(name=>'function Mot'+axis+name+'() {}').join('\n') + 'function Mot'+axis+'ActionState(){return Mot'+axis+'.Action;} function Mot'+axis+'ExcuteTime(){return Mot'+axis+'.PidTimerB;} function Mot'+axis+'SetCurrentPosition(position){Mot'+axis+'.CurPosition=position;} function Mot'+axis+'MoveForward(position,speed){io.moves.push(["forward",position]); Mot'+axis+'.Action=2;} function Mot'+axis+'MoveBackward(position,speed){io.moves.push(["backward",position]); Mot'+axis+'.Action=3;} function Mot'+axis+'MoveStop(){io.stopped=true;Mot'+axis+'.Action=0;}'; // 仅代替动作硬件及传感器输入。
+        const setup = 'const Adc={Mot1:{Vout:0,Vref:0,Current:0,Hall1:0,Hall2:0,Hall3:0},Mot2:{Vout:0,Vref:0,Current:0,Hall1:0,Hall2:0,Hall3:0},Mot3:{Vout:0,Vref:0,Current:0,Hall1:0,Hall2:0,Hall3:0}};' + ['LeftHallScan','RightHallScan','UpHallScan','DownHallScan','ActionHandle','MoveTask'].map(name=>'function Mot'+axis+name+'() {}').join('\n') + 'function Mot'+axis+'ActionState(){return Mot'+axis+'.Action;} function Mot'+axis+'ExcuteTime(){return Mot'+axis+'.PidTimerB;} function Mot'+axis+'SetCurrentPosition(position){Mot'+axis+'.CurPosition=position;} function Mot'+axis+'MoveForward(position,speed){io.moves.push(["forward",position]); Mot'+axis+'.Action=2;} function Mot'+axis+'MoveBackward(position,speed){io.moves.push(["backward",position]); Mot'+axis+'.Action=3;} function Mot'+axis+'MoveStop(){io.stopped=true;Mot'+axis+'.Action=0;}'; // 仅代替动作硬件及传感器输入，完整ADC字段供停机诊断读取。
         const factory=new Function('Mot1','Mot2','Mot3','io','loaded',environment+setup+service+'; return Mot'+axis+'MoveService;'); // 实际归位函数环境。
         /** 函数作用：建立指定电机的归位场景。loaded为保存记录是否有效。 */
         function homing(loaded) { const motors=[{Reset:0},{Reset:0},{Reset:0}]; const motor=motors[axis-1]; Object.assign(motor,{Reset:1,En:0,Step:1,Action:0,BrakeType:3,MaxPulseNum:axis===2?51000:7200,PulseNum:100,PidTimerB:0,Faultflag:0,Hall1Sta:0,Hall2Sta:0}); const io={moves:[]}; return {motor,io,motors,run:factory(...motors,io,loaded)}; }
@@ -111,6 +142,28 @@ function runMotorCalibrationTests(input) {
         check('MOT'+axis+'最终被错误限位打断不使能',()=>{const state=homing(1);state.motor.Step=3;state.motor.BrakeType=1;state.run();equal(state.motor.En,0);equal(state.motor.Faultflag,4);});
         check('MOT'+axis+'首次完整自检归位保持成功',()=>{const state=homing(0);state.motor.Step=3;state.motor.BrakeType=axis===2?3:2;state.run();equal([state.motor.Reset,state.motor.En],[0,1]);});
         if (axis!==2) {
+            for (const step of [1,2]) {
+                for (const hallDetected of [false,true]) {
+                    check('MOT'+axis+'首次自检阶段'+step+(hallDetected?'霍尔与保护脉冲同时到达按霍尔确认':'只有保护脉冲不能确认限位'),()=>{
+                        const state=homing(0); // 首次完整自检，旧记录未加载。
+                        const forward=step===2; // 第二阶段寻找另一端限位。
+                        Object.assign(state.motor,{Step:step,Action:forward?2:3,PulseNum:100,TarPulseNum:100,CurPosition:forward?0:20000,PulseDebB:1000,PulseNumPerAngle:400,Hall1Sta:!forward&&hallDetected?1:0,Hall2Sta:forward&&hallDetected?1:0});
+                        const hallNames=axis===1?['ReadLeftHallState','ReadRightHallState']:['ReadUpHallState','ReadDownHallState']; // 对应电机两侧的实际霍尔接口。
+                        const realAction=hallNames.map(name=>calibrationExtract(source,'Mot'+axis+name)).join('\n')+calibrationExtract(source,'Mot'+axis+'ActionHandle'); // 真实停止原因及停稳处理。
+                        const actionFactory=new Function('Mot1','Mot2','Mot3','io','loaded',environment+setup+' const C_MotorStopDeb=1000,c_AngleScaleFactor=10; function Mot'+axis+'VelocityControl(){} function Mot'+axis+'DisablePidControl(){io.pwm=0;} '+realAction+service+';return Mot'+axis+'MoveService;'); // 仅替换速度和PWM硬件，保留状态机判断。
+                        const run=actionFactory(...state.motors,state.io,0); // 本次首次寻限位场景。
+                        run(); run();
+                        equal(state.io.pwm,0);
+                        if (hallDetected) {
+                            equal(state.motor.BrakeType,forward?1:3); equal(state.motor.Faultflag,0);
+                            equal(state.motor.Step,forward?3:2); equal(state.motor.MaxPulseNum,forward?100:7200);
+                        } else {
+                            equal(state.motor.Faultflag,forward?2:1); equal(state.motor.Step,4);
+                            equal(state.motor.MaxPulseNum,7200); equal(state.motor.En,0); equal(state.io.moves,[]);
+                        }
+                    });
+                }
+            }
             for (const loaded of [0,1]) { // 分别覆盖首次反向回中与历史数据正向回中。
             check('MOT'+axis+(loaded?'快速':'首次')+'目标脉冲与端点霍尔同时到达不接受回中',()=>{
                 const state=homing(loaded); // 构造同时满足脉冲和霍尔停机的场景。

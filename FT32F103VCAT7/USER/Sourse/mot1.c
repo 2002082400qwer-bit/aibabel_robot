@@ -126,6 +126,7 @@ u8 Mot1ReadRightHallState(void)
 #define Mot1PidApproachPulseNum 500 			// 最多提前500脉冲减速，短行程使用本次目标脉冲数的一半。
 #define Mot1PidApproachMinVelocity 20 			// 接近目标时的最低速度指令。
 #define Mot1PidMinimumDuty 1800 				// Mot1运行期间的PWM下限，初始化和普通定位均生效。
+#define Mot1HomingDuty 1800 					// 首次标定和后续寻零的固定低PWM，不受速度PID积分影响。
 static int32_t Mot1PidPreviousError = 0; 		// 上一个控制周期的速度误差。
 static int32_t Mot1PidPreviousPreviousError = 0;// 上上个控制周期的速度误差。
 static int32_t Mot1PidOutputScaled = 0; 		// 按PID缩放比例保存的PWM输出.
@@ -218,7 +219,7 @@ void Mot1ClearEncode(void)
 	Mot1.PidTimerB = 0;
 }	
 /**
- * 函数作用：清零编码器状态并启用Mot1速度闭环，无传入参数。
+ * 函数作用：清零编码器及PID状态并启用运动控制；寻限位立即输出低PWM，回中及普通定位启用速度PID，无传入参数。
  */
 void Mot1EnablePidControl(void)
 {
@@ -226,9 +227,12 @@ void Mot1EnablePidControl(void)
     Mot1.CurVelocity = 0;
     Mot1PidPreviousError = 0;
     Mot1PidPreviousPreviousError = 0;
-    Mot1PidOutputScaled = (int32_t)Mot1PidStartDuty * Mot1PidScale;
+    Mot1PidOutputScaled = (Mot1.TarVelocity != 0) ? (int32_t)Mot1PidStartDuty * Mot1PidScale : 0; // 零速度指令不产生启动PWM。
     Mot1.PidEn = Enable;
-    // TIM1_SetDuty_CH3(c_testPwmDuty); // 测试模式：有效运动启动时立即输出满占空比。
+    if( (Mot1.Reset != 0) && (Mot1.Step < 3) ) {
+        TIM1_SetDuty_CH3((Mot1.TarVelocity != 0 && Mot1.TarPulseNum != 0) ? Mot1HomingDuty : 0); // 寻限位立即输出低PWM，零速度或零行程保持0。
+    }
+    // TIM1_SetDuty_CH3(c_testPwmDuty); // 测试模式：有效运动启动时立即输出固定占空比。
 }
 /**
  * 函数作用：关闭Mot1速度PID并清零PWM和历史控制状态，无传入参数。
@@ -250,7 +254,7 @@ void Mot1SetTargetPosition( u16 num )
 	Mot1.TarPosition = num;
 }	
 /**
- * 函数作用：每个速度控制周期更新Mot1速度反馈、位置角度和PWM，无传入参数。
+ * 函数作用：每周期更新速度、角度和PWM；首次标定及后续寻零固定低PWM，回中和普通定位使用PID及距离减速；停止输出0，无传入参数。
  */
 void Mot1VelocityControl(void)
 {
@@ -260,7 +264,6 @@ void Mot1VelocityControl(void)
 	 u32 encode_count; // 本周期编码器速度换算中间值。
 	 u32 remainingPulseNum; // 当前目标剩余的编码器脉冲数。
 	 u32 brakePulseNum; // 本次运动采用的减速窗口脉冲数。
-	u8 isHomingToLimit; // 初始化阶段是否正在寻找机械限位。
 
 	
 	if( Mot1.PidEn == 0 )	return;	
@@ -268,7 +271,6 @@ void Mot1VelocityControl(void)
 	if( Mot1.PidTimer >= C_PID_RATE ) {
 	
 		Mot1.PidTimer = Mot1.PidTimer - C_PID_RATE;
-		isHomingToLimit = (Mot1.Reset != 0) && (Mot1.Step < 3);
 		//printf("Mot1.PidTimer1 =%d\n", Mot1.PidTimer);
 		
 		if( Mot1.Action == motor_forward )  {		
@@ -296,13 +298,16 @@ void Mot1VelocityControl(void)
 		if( (Mot1.TarVelocity == 0) || (Mot1.TarPulseNum <= Mot1.PulseNum) ) {
             Pwm = Mot1VelocityFeedbackControl(0, Mot1.CurVelocity);
         }
+        else if( (Mot1.Reset != 0) && (Mot1.Step < 3) ) {
+            Pwm = Mot1HomingDuty; // 两侧寻限位全程固定低PWM，按编码器累计实际行程，不运行速度PID。
+        }
         else {
             remainingPulseNum = Mot1.TarPulseNum - Mot1.PulseNum;
             brakePulseNum = Mot1.TarPulseNum / 2;
             if( brakePulseNum == 0 ) brakePulseNum = 1; // 至少保留1脉冲窗口，避免速度插值除零。
             if( brakePulseNum > Mot1PidApproachPulseNum ) brakePulseNum = Mot1PidApproachPulseNum;
             PidTargetVelocity = Mot1.TarVelocity;
-            if( (isHomingToLimit == 0) && (PidTargetVelocity > Mot1PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
+            if( (PidTargetVelocity > Mot1PidApproachMinVelocity) && (remainingPulseNum < brakePulseNum) ) {
                 PidTargetVelocity = Mot1PidApproachMinVelocity +
                     (u16)(((u32)(Mot1.TarVelocity - Mot1PidApproachMinVelocity) * remainingPulseNum) / brakePulseNum);
             }
@@ -314,13 +319,13 @@ void Mot1VelocityControl(void)
         }
         // Pwm = (Mot1.TarPulseNum > Mot1.PulseNum) ? c_testPwmDuty : 0; // 测试模式：运动期间固定满占空比，到达目标脉冲后输出0。
         TIM1_SetDuty_CH3(Pwm);
-		#if 1
-		printf("M1.TarVel =%d\n", Mot1.TarVelocity);
-		printf("M1.CurVel =%d\n", Mot1.CurVelocity);
-		printf("M1.PulseNum =%d\n", Mot1.PulseNum);
-		printf("M1.CurAngle=%d\n", Mot1.CurAngle);
-		printf("M1.PulseNumPerMin=%d\n", Mot1.PulseNumPerMin);
-		printf("pwm =%d\n", Pwm );
+		#if 0
+			printf("M1.TarVel =%d\n", Mot1.TarVelocity);
+			printf("M1.CurVel =%d\n", Mot1.CurVelocity);
+			printf("M1.PulseNum =%d\n", Mot1.PulseNum);
+			printf("M1.CurAngle=%d\n", Mot1.CurAngle);
+			printf("M1.PulseNumPerMin=%d\n", Mot1.PulseNumPerMin);
+			printf("pwm =%d\n", Pwm );
 		#endif
 		//printf("Mot1.PidTimer2 =%d\n", Mot1.PidTimer);
 	}	
@@ -367,13 +372,13 @@ void Mot1MoveForward( u16 TarPosition, u16 Velocity )
 	Mot1.TarPosition = TarPosition;
 	Mot1.TarVelocity = Velocity;
 	
-	printf("M1.CurPos=%d\n", Mot1.CurPosition);
-	printf("M1.TarPos=%d\n", Mot1.TarPosition);
+	// printf("M1.CurPos=%d\n", Mot1.CurPosition);
+	// printf("M1.TarPos=%d\n", Mot1.TarPosition);
 
 	if(  Mot1.TarPosition >  Mot1.CurPosition )	Mot1.TarPulseNum =  Mot1.TarPosition -  Mot1.CurPosition;
 	else Mot1.TarPulseNum = 0;
 	
-	printf("M1.TarPulseNum=%d\n", Mot1.TarPulseNum);
+	// printf("M1.TarPulseNum=%d\n", Mot1.TarPulseNum);
 	if( Mot1.TarPulseNum != 0 ) {
 	
 		Mot1EnablePidControl();
@@ -393,13 +398,13 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 		Mot1.TarPosition = TarPosition;
 	  Mot1.TarVelocity = Velocity;
 		
-		printf("M1.CurPos=%d\n", Mot1.CurPosition);
-		printf("M1.TarPos=%d\n", Mot1.TarPosition);
+		// printf("M1.CurPos=%d\n", Mot1.CurPosition);
+		// printf("M1.TarPos=%d\n", Mot1.TarPosition);
 	
 		if(  Mot1.CurPosition >  Mot1.TarPosition )	Mot1.TarPulseNum =  Mot1.CurPosition -  Mot1.TarPosition;
 	  else Mot1.TarPulseNum = 0;
 	
-		printf("M1.TarPulseNum=%d\n", Mot1.TarPulseNum);
+		// printf("M1.TarPulseNum=%d\n", Mot1.TarPulseNum);
 		
 		if( Mot1.TarPulseNum != 0 ) {
 			
@@ -409,13 +414,17 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 		Mot1.PidTimerB = 0;
 }
 
+/** 函数作用：处理运动和停稳位置；寻限位时霍尔优先，未检测到霍尔的保护脉冲停机不确认限位；无传入参数。 */
+
 void Mot1ActionHandle(void)
 {
+    u8 isHomingToLimit = (Mot1.Reset != 0) && (Mot1.Step < 3); // 寻限位阶段优先确认已消抖的对应霍尔，脉冲仅作保护停机。
 	if( Mot1.Action == motor_forward ) {
 		
 		Mot1VelocityControl();
 		
-		if( Mot1.PulseNum >= Mot1.TarPulseNum )	{
+		if( (Mot1.PulseNum >= Mot1.TarPulseNum) &&
+            ((isHomingToLimit == 0) || (Mot1ReadRightHallState() == 0)) ) {
 			Mot1.BrakeType = pulse_forward_brake;
 			Mot1DisablePidControl();
 			Mot1.Action = motor_brake;
@@ -433,7 +442,8 @@ void Mot1ActionHandle(void)
 		
 		Mot1VelocityControl();
 
-		if( Mot1.PulseNum >= Mot1.TarPulseNum )	{
+		if( (Mot1.PulseNum >= Mot1.TarPulseNum) &&
+            ((isHomingToLimit == 0) || (Mot1ReadLeftHallState() == 0)) ) {
 			
 			Mot1.BrakeType = pulse_backward_brake;
 			Mot1DisablePidControl();
@@ -453,8 +463,8 @@ void Mot1ActionHandle(void)
 			if( Mot1.PulseDebB >= C_MotorStopDeb )	{
 				
 				printf("m1 stop\n");
-				printf("M1.PulseNum =%d\n ",Mot1.PulseNum );
-				printf("M1.TarPulseNum =%d\n ",Mot1.TarPulseNum );
+				// printf("M1.PulseNum =%d\n ",Mot1.PulseNum );
+				// printf("M1.TarPulseNum =%d\n ",Mot1.TarPulseNum );
 				//Mot1.ErrPulseNum = Mot1.PulseNum - Mot1.TarPulseNum;
 				//printf("Mot1.ErrPulseNum = %d\n",Mot1.ErrPulseNum);
 
@@ -477,8 +487,8 @@ void Mot1ActionHandle(void)
 					Mot1.CurPosition = 0;					
 					
 				}	
-				printf("M1.CurPos =%d\n ",Mot1.CurPosition );
-				printf("M1.CurAngle=%d\n", Mot1.CurAngle);
+				// printf("M1.CurPos =%d\n ",Mot1.CurPosition );
+				// printf("M1.CurAngle=%d\n", Mot1.CurAngle);
 				Mot1.CurAngle = (u32)(Mot1.CurPosition*c_AngleScaleFactor*c_PulseScaleFactor)/Mot1.PulseNumPerAngle; 
 				Mot1.CurVelocity = 0;
 				Mot1.Action = motor_stop;				
@@ -486,6 +496,7 @@ void Mot1ActionHandle(void)
 	}		
 }	
 
+// 函数作用：设置电机目标角度和速度；Angle为目标角度，speed为目标速度，单位沿用原接口。
 void Mot1SetAngleSpeed( u16 Angle, u16 speed )
 {
 		u32 sum;
@@ -494,14 +505,14 @@ void Mot1SetAngleSpeed( u16 Angle, u16 speed )
 	
 		Mot1.TarVelocity = speed;
 	
-		printf("M1.PulseNumPerAngle =%d\n", Mot1.PulseNumPerAngle );
+		// printf("M1.PulseNumPerAngle =%d\n", Mot1.PulseNumPerAngle );
 	
 		sum = (u32)Angle*Mot1.PulseNumPerAngle;
 	
 		//printf("sum =%d\n", sum );
 		if( sum != 0 ) 	Mot1.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
 		else Mot1.TarPosition = 0;
-		printf("M1.TarPos =%d\n", Mot1.TarPosition );
+		// printf("M1.TarPos =%d\n", Mot1.TarPosition );
 	
 	if( Mot1.TarPosition > Mot1.CurPosition ) {
 			
@@ -512,14 +523,15 @@ void Mot1SetAngleSpeed( u16 Angle, u16 speed )
 			Mot1MoveBackward( Mot1.TarPosition, speed ); 
 		}	
 }	
+// 函数作用：登记电机运动任务；Angle或Height为目标角度或高度，Speed为目标速度，单位沿用原接口。
 void Move1SetTask( u16 Angle, u16 Speed )
 {
 	if( Mot1.Reset != 0 ) return ;
 	if( ( Angle == Move1.Angle )&&( Speed == Move1.Speed ) )  return ;
 	Move1.Angle = Angle;
 	Move1.Speed = Speed;
-	printf("m1 task angle =%d\n",Angle );
-	printf("m1 task speed =%d\n",Speed );
+	// printf("m1 task angle =%d\n",Angle );
+	// printf("m1 task speed =%d\n",Speed );
 	Move1.Step = 0;
 	Move1.En = Enable;
 }	
@@ -629,6 +641,7 @@ void Mot1MoveService(void)
 					(Mot1.Hall1Sta == 0) && (Mot1.Hall2Sta == 0) ) {
 									Mot1.En = 1;
 									Mot1.Reset = 0;
+									printf("MOT1 init complete\r\n"); // 归位确认成功后打印一次初始化完成信息。
 								}
 								else {
 									Mot1.Faultflag = MotorFault;
