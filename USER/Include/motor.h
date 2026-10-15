@@ -8,7 +8,7 @@ extern "C" {
 #include "sys.h"
 
 #define Motor1Enable  1 // 启用电机1初始化及服务。
-#define Motor2Enable  1 // 启用电机2初始化及服务。
+#define Motor2Enable  0 // 启用电机2初始化及服务。
 #define Motor3Enable  1 // 启用电机3初始化及服务。
 #define C_PID_RATE			  	50 		//单位豪秒
 #define C_MotorStopDeb  		1000  //50ms
@@ -88,7 +88,7 @@ enum motorFault
 
 extern uint8_t MotorEn; // 电机服务初始化完成标志。
 extern u8 MotorCalibrationLoaded; // 本次启动是否读取到有效的历史校准数据。
-#define MotorCalibrationRewriteOnReset 0 // 0优先复用有效Flash校准；1复位后重新完整标定，全部成功后覆盖保存一次。
+#define MotorCalibrationRewriteOnReset 1 // 0优先复用有效Flash校准；1复位后重新完整标定，全部成功后覆盖保存一次。
 #define Motor2CalibrationHeight 510 // 电机2原有标定高度，单位毫米。
 
 void MotorInit(void);
