@@ -424,6 +424,7 @@ void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 
 void Mot3ActionHandle(void)
 {
+    u16 pulseAtBrake; // [MOT3刹停诊断] 保存下发PWM零输出前的脉冲数，用于区分判断延迟和停机后滑行。
     u8 isHomingToLimit = (Mot3.Reset != 0) && (Mot3.Step < 3); // 寻限位阶段优先确认已消抖的对应霍尔，脉冲仅作保护停机。
 	if( Mot3.Action == motor_forward ) {
 		
@@ -452,9 +453,10 @@ void Mot3ActionHandle(void)
             ((isHomingToLimit == 0) || (Mot3ReadUpHallState() == 0)) ) {
 			
 			Mot3.BrakeType = pulse_backward_brake;
+			pulseAtBrake = Mot3.PulseNum;
 			Mot3DisablePidControl();
 			Mot3.Action = motor_brake;
-			printf("M3pulsebrake\n");
+			printf("M3pulsebrake: pulse=%d, target=%d, elapsed=%d, hall1=%d, hall2=%d, pwm=0\r\n", pulseAtBrake, Mot3.TarPulseNum, Mot3.PidTimerB, Mot3.Hall1Sta, Mot3.Hall2Sta);
 		}	
 		else if( Mot3ReadUpHallState() != 0 ){
 			
