@@ -367,7 +367,9 @@ void Mot1MoveForward( u16 TarPosition, u16 Velocity )
 	printf("m1 forward\n");
 
 	//Mot1DirPin = NegativeMove;
-	GPIO_ResetBits(Mot1DirIO, Mot1DirPin);	
+	// GPIO_ResetBits(Mot1DirIO, Mot1DirPin);//低电平启动电机	
+	//   GPIO_SetBits(Mot1DirIO, Mot1DirPin);
+	  GPIO_SetBits(Mot1DirIO, Mot1DirPin);//高电平启动电机
 
 	Mot1.TarPosition = TarPosition;
 	Mot1.TarVelocity = Velocity;
@@ -393,7 +395,8 @@ void Mot1MoveBackward( u16 TarPosition, u16 Velocity)
 {
 		printf("m1 backward\n");
 		//Mot1DirPin = PositiveMove;
-	  GPIO_SetBits(Mot1DirIO, Mot1DirPin);
+	//   GPIO_SetBits(Mot1DirIO, Mot1DirPin);//低电平启动电机
+	  GPIO_ResetBits(Mot1DirIO, Mot1DirPin);//高电平启动电机
 	
 		Mot1.TarPosition = TarPosition;
 	  Mot1.TarVelocity = Velocity;

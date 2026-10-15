@@ -58,13 +58,19 @@ void Mot3Init(void)
 	Move3.Step = 0;
 }
 
+#if 1	//高电平电机霍尔检测
+
+uint8_t printfhall = 0;
 void Mot3UpHallScan(void)
 {
 	if( Mot3.Hall1Sta == 0 ) {
-		if( Adc.Mot3.Hall1 >= ( Mot3TriggerAdc+600 ) ) {
+		if( Adc.Mot3.Hall1 >= ( /*Mot3TriggerAdc+600*/ 2300) ) {
 			if( Mot3.Hall1Deb >= 20 )	{	
 				Mot3.Hall1Sta = 1;
+				
+				if(printfhall & 1) return;
 				printf("MOT3 up hall trigger\r\n");
+				printfhall |= 1;
 			}	
 		}	
 		else {
@@ -72,7 +78,7 @@ void Mot3UpHallScan(void)
 		}	
   }
   else {
-		if( Adc.Mot3.Hall1 < ( Mot3TriggerAdc+600 ) ) {
+		if( Adc.Mot3.Hall1 < ( /*Mot3TriggerAdc+600*/ 2300) ) {
 			if( Mot3.Hall1Deb >= 20 )	{	
 				Mot3.Hall1Sta = 0;
 			}	
@@ -91,9 +97,75 @@ u8 Mot3ReadUpHallState(void)
 void Mot3DownHallScan(void)
 {
 	if( Mot3.Hall2Sta == 0 ) {
+		if( Adc.Mot3.Hall2 >= ( /*Mot3TriggerAdc+100*/ 2300 ) ) {
+			if( Mot3.Hall2Deb >= 20 )	{	
+				Mot3.Hall2Sta = 1;
+
+				if(printfhall & 2) return;
+					printf("MOT3 down hall trigger\r\n");
+				printfhall |= 2;
+			}	
+		}	
+		else {
+			Mot3.Hall2Deb = 0;
+		}	
+  }
+  else {
+		if( Adc.Mot3.Hall2 < ( /*Mot3TriggerAdc+100*/ 2300) ) {
+			if( Mot3.Hall2Deb >= 20 )	{	
+				Mot3.Hall2Sta = 0;
+			}	
+		}	
+		else {
+			Mot3.Hall2Deb = 0;
+		}	
+  }
+}	
+
+u8 Mot3ReadDownHallState(void)
+{
+	return Mot3.Hall2Sta;
+}
+
+#else	//低电平电机霍尔检测
+
+void Mot3DownHallScan(void)
+{
+	if( Mot3.Hall1Sta == 0 ) {
+		if( Adc.Mot3.Hall1 >= ( Mot3TriggerAdc+600) ) {
+			if( Mot3.Hall1Deb >= 20 )	{	
+				Mot3.Hall1Sta = 1;
+				printf("MOT3 down hall trigger\r\n");
+			}	
+		}	
+		else {
+			Mot3.Hall1Deb = 0;
+		}	
+  }
+  else {
+		if( Adc.Mot3.Hall1 < ( Mot3TriggerAdc+600) ) {
+			if( Mot3.Hall1Deb >= 20 )	{	
+				Mot3.Hall1Sta = 0;
+			}	
+		}	
+		else {
+			Mot3.Hall1Deb = 0;
+		}	
+  }
+}
+
+u8 Mot3ReadDownHallState(void)
+{
+	return Mot3.Hall1Sta;
+}
+
+void Mot3UpHallScan(void)
+{
+	if( Mot3.Hall2Sta == 0 ) {
 		if( Adc.Mot3.Hall2 >= ( Mot3TriggerAdc+100 ) ) {
 			if( Mot3.Hall2Deb >= 20 )	{	
 				Mot3.Hall2Sta = 1;
+				printf("MOT3 up hall trigger\r\n");
 			}	
 		}	
 		else {
@@ -112,18 +184,19 @@ void Mot3DownHallScan(void)
   }
 }	
 
-u8 Mot3ReadDownHallState(void)
+u8 Mot3ReadUpHallState(void)
 {
 	return Mot3.Hall2Sta;
 }
+#endif
 
 #define Mot3PidScale 100 							// 增量式PID增益缩放，Ki按每个50ms周期累加。
 #define Mot3VelocityKp 100 							// 比例增益Kp=1.00，按Mot2现有PID单位缩放。
 #define Mot3VelocityKi 2 							// 积分增益Ki=0.02，每个50ms控制周期累加。
 #define Mot3VelocityKd 100 							// 微分增益Kd=1.00，与MOT1当前参数一致。
-#define Mot3PidMinimumDuty 4800 					// MOT3有效运动期间的最低PWM，停止或到达目标时不启用。
-#define Mot3HomingDuty 4800 						// 首次标定和后续寻零的固定低PWM，不受速度PID积分影响。
-#define Mot3PidStartDuty 4800 						// PID启动初值，与MOT1当前参数一致。
+#define Mot3PidMinimumDuty (4800*0.3) 				// MOT3有效运动期间的最低PWM，停止或到达目标时不启用。
+#define Mot3HomingDuty (4800*0.4) 					// 首次标定和后续寻零的固定低PWM，不受速度PID积分影响。
+#define Mot3PidStartDuty (4800*0.3) 				// PID启动初值，与MOT1当前参数一致。
 #define Mot3PidApproachPulseNum 500 				// 最多提前500脉冲减速，短行程使用本次目标脉冲数的一半。
 #define Mot3PidApproachMinVelocity 20 				// 接近目标时的最低速度指令。
 static int32_t Mot3PidPreviousError = 0; 			// 上一个控制周期的速度误差。
@@ -231,7 +304,7 @@ void Mot3EnablePidControl(void)
     if( (Mot3.Reset != 0) && (Mot3.Step < 3) ) {
         TIM1_SetDuty_CH2((Mot3.TarVelocity != 0 && Mot3.TarPulseNum != 0) ? Mot3HomingDuty : 0); // 寻限位立即输出低PWM，零速度或零行程保持0。
     }
-	TIM1_SetDuty_CH2(c_testPwmDutyMot3); // 测试模式：有效运动启动时立即输出固定占空比。
+	// TIM1_SetDuty_CH2(c_testPwmDutyMot3); // 测试模式：有效运动启动时立即输出固定占空比。
 }
 /**
  * 函数作用：关闭Mot3速度PID并清零PWM和历史控制状态，无传入参数。
@@ -323,9 +396,9 @@ void Mot3VelocityControl(void)
 		if( Mot3.TarVelocity == 0 ) Pwm = 0;
 		else Pwm = 2400;
 		#endif
-		Pwm = (Mot3.TarPulseNum > Mot3.PulseNum) ? c_testPwmDutyMot3 : 0; // 测试模式：运动期间输出固定pwm，到达目标脉冲后输出0。
+		// Pwm = (Mot3.TarPulseNum > Mot3.PulseNum) ? c_testPwmDutyMot3 : 0; // 测试模式：运动期间输出固定pwm，到达目标脉冲后输出0。
 		TIM1_SetDuty_CH2(Pwm);
-		#if 1
+		#if 0
 			printf("M3.TarVel =%d\n", Mot3.TarVelocity);
 			printf("M3.CurVel =%d\n", Mot3.CurVelocity);
 			printf("M3.PulseNum =%d\n", Mot3.PulseNum);
@@ -372,16 +445,16 @@ void Mot3MoveForward( u16 TarPosition, u16 Velocity )
 {
 		printf("M3 forward\n");
 		//Mot3DirPin = PositiveMove;
-	  GPIO_SetBits( Mot3DirIO, Mot3DirPin );
+	  	GPIO_SetBits( Mot3DirIO, Mot3DirPin );
 		 
 		Mot3.TarPosition = TarPosition;
-	  Mot3.TarVelocity = Velocity;
+	  	Mot3.TarVelocity = Velocity;
 		
 		// printf("M3.CurPos=%d\n", Mot3.CurPosition);
 		// printf("M3.TarPos=%d\n", Mot3.TarPosition);
 	
 		if(  Mot3.TarPosition >  Mot3.CurPosition )	Mot3.TarPulseNum =  Mot3.TarPosition -  Mot3.CurPosition;
-	  else Mot3.TarPulseNum = 0;
+	  	else Mot3.TarPulseNum = 0;
 		
 		// printf("M3.TarPulseNum=%d\n", Mot3.TarPulseNum);
 		if( Mot3.TarPulseNum != 0 ) {
@@ -424,6 +497,7 @@ void Mot3MoveBackward( u16 TarPosition, u16 Velocity)
 
 void Mot3ActionHandle(void)
 {
+    // [调试关闭] u16 pulseAtBrake; // [MOT3刹停诊断] 保存下发PWM零输出前的脉冲数，用于区分判断延迟和停机后滑行。
     u8 isHomingToLimit = (Mot3.Reset != 0) && (Mot3.Step < 3); // 寻限位阶段优先确认已消抖的对应霍尔，脉冲仅作保护停机。
 	if( Mot3.Action == motor_forward ) {
 		
@@ -452,9 +526,10 @@ void Mot3ActionHandle(void)
             ((isHomingToLimit == 0) || (Mot3ReadUpHallState() == 0)) ) {
 			
 			Mot3.BrakeType = pulse_backward_brake;
+			// [调试关闭] pulseAtBrake = Mot3.PulseNum;
 			Mot3DisablePidControl();
 			Mot3.Action = motor_brake;
-			printf("M3pulsebrake\n");
+			// [调试关闭] printf("M3pulsebrake: pulse=%d, target=%d, elapsed=%d, hall1=%d, hall2=%d, pwm=0\r\n", pulseAtBrake, Mot3.TarPulseNum, Mot3.PidTimerB, Mot3.Hall1Sta, Mot3.Hall2Sta);
 		}	
 		else if( Mot3ReadUpHallState() != 0 ){
 			
@@ -505,20 +580,20 @@ void Mot3ActionHandle(void)
 // 函数作用：设置电机目标角度和速度；Angle为目标角度，speed为目标速度，单位沿用原接口。
 void Mot3SetAngleSpeed( u16 Angle, u16 speed )
 {
-		u32 sum;
-		Mot3.TarVelocity = speed;
-	  if( Angle >= (c_MaxAngle*10) ) Angle=c_MaxAngle*10;
-		// printf("Angle =%d\n", Angle );
-		// printf("speed =%d\n", speed );
-		// printf("M3.PulseNumPerAngle =%d\n", Mot3.PulseNumPerAngle );
-	
-		sum = (u32)Angle*Mot3.PulseNumPerAngle;
-	
-		//printf("sum =%d\n", sum );
-	
-		if( sum != 0 ) Mot3.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
-		else Mot3.TarPosition = 0;
-		// printf("M3.TarPos=%d\n", Mot3.TarPosition );
+	u32 sum;
+	Mot3.TarVelocity = speed;
+	if( Angle >= (c_MaxAngle*10) ) Angle=c_MaxAngle*10;
+	// printf("Angle =%d\n", Angle );
+	// printf("speed =%d\n", speed );
+	// printf("M3.PulseNumPerAngle =%d\n", Mot3.PulseNumPerAngle );
+
+	sum = (u32)Angle*Mot3.PulseNumPerAngle;
+
+	//printf("sum =%d\n", sum );
+
+	if( sum != 0 ) Mot3.TarPosition = sum/(c_AngleScaleFactor*c_PulseScaleFactor);
+	else Mot3.TarPosition = 0;
+	// printf("M3.TarPos=%d\n", Mot3.TarPosition );
 	
 	if( Mot3.TarPosition > Mot3.CurPosition ) {
 			
@@ -566,6 +641,9 @@ void Mot3MoveService(void)
 {
 		u32 total; // 实测全行程换算每角度脉冲的中间值。
 		
+		// PRINTF("MOT3 hall1:%d\r\n", Adc.Mot3.Hall1);
+		// PRINTF("MOT3 hall2:%d\r\n", Adc.Mot3.Hall2);
+
 		Mot3UpHallScan();
 	
 		Mot3DownHallScan();
@@ -597,10 +675,10 @@ void Mot3MoveService(void)
 								}
 								else {
 									Mot3SetCurrentPosition(0);
-                                    printf("M3 zero confirmed: loaded=%d, max=%d\r\n", MotorCalibrationLoaded, Mot3.MaxPulseNum); // 核对寻零后实际采用完整标定还是历史半程回中。
+                                    // printf("M3 zero confirmed: loaded=%d, max=%d\r\n", MotorCalibrationLoaded, Mot3.MaxPulseNum); // 核对寻零后实际采用完整标定还是历史半程回中。
 									if( MotorCalibrationLoaded != 0 ) {
 										// 历史标定有效：从零点侧限位（原反向运动对应上霍尔）按保存行程直接回中。
-										Mot3MoveForward( Mot3.MaxPulseNum / 2, 50 );
+										Mot3MoveForward( (Mot3.MaxPulseNum / 2), 50 );
 										Mot3.Step = 3;
 									}
 									else {
@@ -650,9 +728,11 @@ void Mot3MoveService(void)
 							break;
 				case 3:
 							if( Mot3ActionState() == motor_stop ){
+								// [MOT3回中诊断] 回中停稳后打印一次刹停原因、两路霍尔状态和实际/目标脉冲，定位机械位置偏差。
+								// [调试关闭] printf("M3 center check: brake=%d, expected=%d, hall1=%d, hall2=%d, adc1=%d, adc2=%d, pulse=%d, target=%d, max=%d\r\n", Mot3.BrakeType, (MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake, Mot3.Hall1Sta, Mot3.Hall2Sta, Adc.Mot3.Hall1, Adc.Mot3.Hall2, Mot3.PulseNum, Mot3.TarPulseNum, Mot3.MaxPulseNum);
 								// 归位被异常限位打断时不报成功，防止把未到中点的数据当成自检成功。
 								if( (Mot3.BrakeType == ((MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake)) &&
-					(Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0) ) {
+									(Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0) ) {
 									Mot3.En = 1;
 									Mot3.Reset = 0;
 									printf("MOT3 init complete\r\n"); // 归位确认成功后打印一次初始化完成信息。
