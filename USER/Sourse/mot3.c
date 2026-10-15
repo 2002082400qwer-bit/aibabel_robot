@@ -650,6 +650,8 @@ void Mot3MoveService(void)
 							break;
 				case 3:
 							if( Mot3ActionState() == motor_stop ){
+								// [MOT3回中诊断] 回中停稳后打印一次刹停原因、两路霍尔状态和实际/目标脉冲，定位机械位置偏差。
+								printf("M3 center check: brake=%d, expected=%d, hall1=%d, hall2=%d, adc1=%d, adc2=%d, pulse=%d, target=%d, max=%d\r\n", Mot3.BrakeType, (MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake, Mot3.Hall1Sta, Mot3.Hall2Sta, Adc.Mot3.Hall1, Adc.Mot3.Hall2, Mot3.PulseNum, Mot3.TarPulseNum, Mot3.MaxPulseNum);
 								// 归位被异常限位打断时不报成功，防止把未到中点的数据当成自检成功。
 								if( (Mot3.BrakeType == ((MotorCalibrationLoaded != 0) ? pulse_forward_brake : pulse_backward_brake)) &&
 					(Mot3.Hall1Sta == 0) && (Mot3.Hall2Sta == 0) ) {
